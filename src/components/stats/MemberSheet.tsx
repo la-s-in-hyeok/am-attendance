@@ -10,6 +10,12 @@ type Cell = { date: ISODate; status: Status | 'unchecked'; service: Service | nu
 
 const ORDER: (Status | 'unchecked')[] = ['present', 'away', 'nocontact', 'other', 'unchecked']
 
+const LEGEND = [
+  { label: '1부', box: SERVICE_STYLE[1].bg },
+  { label: '2부', box: SERVICE_STYLE[2].bg },
+  { label: '미확인', box: `${STATUS_STYLE.unchecked.soft} ring-1 ring-line` },
+]
+
 /** 한 사람의 한 해 출석 기록 */
 export function MemberSheet({
   member,
@@ -68,15 +74,15 @@ export function MemberSheet({
             <p className="py-10 text-center text-sm text-ink-3">{year}년에는 이 분의 출석 기록이 없어요.</p>
           ) : (
             <>
-              <div className="mt-4 flex items-end justify-between rounded-2xl bg-present-soft px-4 py-3.5">
+              <div className="mt-4 flex items-end justify-between rounded-2xl bg-brand-soft px-4 py-3.5">
                 <div>
-                  <p className="text-[13px] font-semibold text-present-ink">{year}년 출석률</p>
-                  <p className="tabular mt-0.5 text-[28px] leading-none font-extrabold">
+                  <p className="text-[13px] font-semibold text-brand-ink">{year}년 출석률</p>
+                  <p className="tabular mt-0.5 text-[28px] leading-none font-bold text-brand-ink">
                     {data.rate === null ? '-' : Math.round(data.rate * 100)}
                     <span className="ml-0.5 text-base">%</span>
                   </p>
                 </div>
-                <div className="tabular text-right text-sm font-semibold text-present-ink">
+                <div className="tabular text-right text-sm font-semibold text-brand-ink">
                   <p>
                     {data.cells.length}주 중 {data.counts.present}주 출석
                   </p>
@@ -126,8 +132,15 @@ export function MemberSheet({
                   </div>
                 ))}
               </div>
-              <p className="mt-3 text-[13px] leading-relaxed text-ink-3">
-                칸 안의 숫자는 날짜예요. 노란 칸은 1부, 민트 칸은 2부 출석이고, 옅은 회색 칸은 미확인이에요.
+              {/* 칸 색 안내 (칸 안 숫자 = 날짜) */}
+              <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
+                <span>숫자는 날짜</span>
+                {LEGEND.map((l) => (
+                  <span key={l.label} className="inline-flex items-center gap-1.5">
+                    <span className={`h-3 w-3 rounded-[4px] ${l.box}`} />
+                    {l.label}
+                  </span>
+                ))}
               </p>
 
               {data.reasons.length > 0 && (

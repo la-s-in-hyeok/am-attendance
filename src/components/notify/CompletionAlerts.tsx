@@ -189,7 +189,7 @@ export function CompletionAlerts() {
           <div
             key={b.id}
             role="alert"
-            className={`anim-pop pointer-events-auto flex w-full max-w-md items-center gap-0.5 rounded-[20px] bg-ink p-1 text-white shadow-[var(--shadow-pop)] ${
+            className={`anim-pop pointer-events-auto flex w-full max-w-md items-center gap-0.5 rounded-[20px] bg-brand-deep p-1 text-white shadow-[var(--shadow-pop)] ${
               i > 0 ? 'max-md:hidden' : ''
             }`}
           >
@@ -202,14 +202,14 @@ export function CompletionAlerts() {
               className="flex min-h-12 min-w-0 flex-1 items-center gap-2.5 rounded-2xl py-1 pr-1 pl-1.5 text-left active:bg-white/10"
             >
               <span
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${edited ? 'bg-other text-white' : 'bg-present text-ink'}`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${edited ? 'bg-accent text-accent-ink' : 'bg-white text-ok'}`}
               >
                 <Icon name={edited ? 'edit' : 'check'} size={edited ? 17 : 20} strokeWidth={edited ? 2.2 : 3} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] leading-snug font-extrabold break-keep [overflow-wrap:anywhere]">{b.text}</span>
                 {b.notice.date !== currentSunday() && (
-                  <span className="block text-[13px] font-medium text-white/60">{labelMD(b.notice.date)}</span>
+                  <span className="block text-[13px] font-medium text-white/85">{labelMD(b.notice.date)}</span>
                 )}
               </span>
               <Icon name="chevronRight" size={18} className="shrink-0 text-white/50" />

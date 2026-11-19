@@ -96,7 +96,7 @@ export function LoginPage() {
   if (booting)
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-line border-t-present" />
+        <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-line border-t-brand" />
       </div>
     )
 
@@ -125,7 +125,7 @@ export function LoginPage() {
             style={shake ? { animation: 'shake .35s' } : undefined}
           >
             {Array.from({ length: dots }).map((_, i) => (
-              <span key={i} className={`h-4 w-4 rounded-full transition ${i < code.length ? 'scale-110 bg-ink' : 'bg-line'}`} />
+              <span key={i} className={`h-4 w-4 rounded-full transition ${i < code.length ? 'scale-110 bg-brand' : 'bg-line'}`} />
             ))}
           </div>
           <p className="mt-3 min-h-5 max-w-xs text-sm font-semibold text-danger" role="alert">
@@ -148,13 +148,13 @@ export function LoginPage() {
               type="button"
               disabled={!canSubmit}
               onClick={() => submit(code)}
-              className={`${KEY_H} flex items-center justify-center rounded-2xl bg-ink text-[17px] font-bold text-white shadow-[var(--shadow-card)] transition select-none active:scale-95 disabled:bg-line disabled:text-ink-3 disabled:shadow-none`}
+              className={`${KEY_H} flex items-center justify-center rounded-2xl bg-brand text-[17px] font-bold text-white shadow-[0_4px_12px_rgb(10_114_180/0.25)] transition select-none active:scale-95 disabled:bg-line disabled:text-ink-3 disabled:shadow-none`}
             >
               {busy ? '…' : '확인'}
             </button>
           </div>
           <label className="mx-auto mt-2 flex h-11 w-fit cursor-pointer items-center justify-center gap-2 px-2 text-sm font-semibold text-ink-2 select-none">
-            <input type="checkbox" className="h-5 w-5 accent-ink" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            <input type="checkbox" className="h-5 w-5 accent-brand" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
             이 기기에서 로그인 유지
           </label>
           {mode === 'local' && <p className="mt-1 text-center text-[13px] leading-relaxed text-ink-3">체험판 · 비밀번호 0000</p>}
@@ -174,7 +174,7 @@ function Key({ children, onClick, label }: { children: React.ReactNode; onClick:
       type="button"
       aria-label={label}
       onClick={onClick}
-      className={`${KEY_H} flex items-center justify-center rounded-2xl bg-surface text-2xl font-semibold shadow-[var(--shadow-card)] transition select-none active:scale-95 active:bg-present`}
+      className={`${KEY_H} flex items-center justify-center rounded-2xl bg-surface text-2xl font-semibold shadow-[var(--shadow-card)] transition select-none active:scale-95 active:bg-brand-soft`}
     >
       {children}
     </button>

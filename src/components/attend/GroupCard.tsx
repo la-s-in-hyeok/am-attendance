@@ -1,8 +1,7 @@
 import { memo } from 'react'
 import type { Counts, GroupWeek } from '../../lib/compute'
-import { rate } from '../../lib/compute'
 import type { Group, GroupDayState } from '../../lib/types'
-import { Icon, Ring, StackBar } from '../ui'
+import { Icon } from '../ui'
 
 /** "목자 홍길동 · 총무 김철수" (없으면 인원 수) */
 export function staffLine(gw: GroupWeek): string {
@@ -17,87 +16,84 @@ export function staffLine(gw: GroupWeek): string {
 interface Props {
   group: Group
   summary: Counts
+  /** 목자·총무 (PC 에서 마우스를 올리면 보인다) */
   staff: string
   /** 완료 상태 (없으면 아직 완료 전) */
   dayState?: GroupDayState
   onOpen: (groupId: string) => void
 }
 
+/** 초록 동그라미 안의 체크 */
+function DoneDot() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0">
+      <circle cx="8" cy="8" r="8" className="fill-ok-icon" />
+      <path d="M4.6 8.2l2.2 2.2 4.6-4.6" fill="none" className="stroke-white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/**
+ * 목장 칸 하나: 위에 이름, 아래에 출석 수와 상태(완료 / 수정 중 / 미확인).
+ * 완료는 초록 칸, 수정 중은 주황 칸, 아직이면 흰 칸. 칸 전체가 하나의 버튼
+ */
 function GroupCardView({ group, summary, staff, dayState, onOpen }: Props) {
-  const r = rate(summary.present, summary.total)
+  const done = dayState === 'done'
+  const editing = dayState === 'editing'
+  const state = done ? '완료' : editing ? '수정 중' : summary.unchecked > 0 ? `미확인 ${summary.unchecked}명` : ''
+  const look = done
+    ? 'border-ok-line bg-ok-soft hover:brightness-[0.98]'
+    : editing
+      ? 'border-accent bg-accent-soft hover:brightness-[0.98]'
+      : 'border-line bg-surface shadow-[0_1px_4px_rgb(16_42_67/0.05)] hover:bg-hover'
   return (
     <button
       type="button"
       onClick={() => onOpen(group.id)}
-      className="block w-full rounded-[var(--radius-card)] bg-surface p-4 text-left shadow-[var(--shadow-card)] transition hover:shadow-[0_1px_2px_rgb(16_18_24/0.05),0_8px_24px_rgb(16_18_24/0.08)] active:scale-[0.99]"
+      title={staff}
+      aria-label={`${group.name}${group.archived ? ' (보관됨)' : ''}, ${summary.present}/${summary.total}명${state ? `, ${state}` : ''}`}
+      className={`flex min-h-[84px] w-full min-w-0 flex-col items-stretch justify-between gap-1.5 rounded-2xl border-[1.5px] py-2 pr-2.5 pl-3 text-left transition active:scale-[0.97] ${look}`}
     >
-      <div className="flex items-center gap-3.5">
-        <Ring value={r ?? 0} size={52} stroke={5}>
-          <span className="tabular text-[13px] font-extrabold">
-            {r === null ? '-' : Math.round(r * 100)}
-            {r !== null && <span className="text-[10px] font-bold">%</span>}
+      {/* 긴 목장 이름은 줄여 쓰지 않고 줄을 바꾼다 */}
+      <span className="min-w-0">
+        <span className="block text-[15px] leading-tight font-bold [overflow-wrap:anywhere]">{group.name}</span>
+        {group.archived && <span className="mt-0.5 block text-[12px] leading-tight font-semibold text-ink-3">보관됨</span>}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="tabular text-[12px] leading-snug font-medium text-ink-2">
+          {summary.present}/{summary.total}명
+        </span>
+        {done ? (
+          <span className="inline-flex items-center gap-1 text-[13px] leading-snug font-bold text-ok">
+            <DoneDot />
+            완료
           </span>
-        </Ring>
-        <div className="min-w-0 flex-1">
-          {/* 긴 목장 이름은 줄여 쓰지 않고 줄을 바꾼다 */}
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-            <p className="min-w-0 text-[17px] leading-snug font-extrabold [overflow-wrap:anywhere]">{group.name}</p>
-            {group.archived && (
-              <span className="shrink-0 rounded-md bg-[#f1f1ec] px-1.5 py-0.5 text-[13px] font-bold text-ink-3">보관됨</span>
-            )}
-            {dayState === 'done' ? (
-              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-ok/10 px-2 py-0.5 text-[13px] font-bold text-ok">
-                <Icon name="check" size={12} strokeWidth={2.8} />
-                완료
-              </span>
-            ) : dayState === 'editing' ? (
-              <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-present-soft px-2 py-0.5 text-[13px] font-bold text-present-ink">
-                <Icon name="edit" size={11} strokeWidth={2.4} />
-                수정 중
-              </span>
-            ) : summary.unchecked > 0 ? (
-              <span className="tabular shrink-0 rounded-full bg-[#f3f3ef] px-2 py-0.5 text-[13px] font-bold text-ink-2">
-                미확인 {summary.unchecked}
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug text-ink-3">{staff}</p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="tabular text-[17px] leading-tight font-extrabold">
-            {summary.present}
-            <span className="text-sm font-semibold text-ink-3">/{summary.total}</span>
-          </p>
-          <p className="text-[13px] text-ink-3">출석</p>
-        </div>
-        <Icon name="chevronRight" size={18} className="-mr-1 shrink-0 text-ink-3" />
-      </div>
-      <StackBar
-        className="mt-3.5"
-        present={summary.present}
-        service2={summary.service2}
-        away={summary.away}
-        nocontact={summary.nocontact}
-        other={summary.other}
-        total={summary.total}
-      />
+        ) : editing ? (
+          <span className="inline-flex items-center gap-1 text-[13px] leading-snug font-bold text-accent-soft-ink">
+            <Icon name="edit" size={13} strokeWidth={2.4} className="shrink-0" />
+            수정 중
+          </span>
+        ) : summary.unchecked > 0 ? (
+          <span className="tabular inline-flex items-center gap-1.5 text-[13px] leading-snug font-semibold text-ink-2">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full border-2 border-nocontact" />
+            미확인 {summary.unchecked}
+          </span>
+        ) : summary.total > 0 ? (
+          <span className="inline-flex items-center gap-1 text-[13px] leading-snug font-semibold text-ink-2">
+            <Icon name="check" size={13} strokeWidth={2.6} className="shrink-0" />
+            모두 확인
+          </span>
+        ) : null}
+      </span>
     </button>
   )
 }
 
 function sameCounts(a: Counts, b: Counts) {
-  return (
-    a.total === b.total &&
-    a.present === b.present &&
-    a.away === b.away &&
-    a.nocontact === b.nocontact &&
-    a.other === b.other &&
-    a.unchecked === b.unchecked &&
-    a.service2 === b.service2
-  )
+  return a.total === b.total && a.present === b.present && a.unchecked === b.unchecked
 }
 
-/** 목장 카드. 숫자가 그대로면 다시 그리지 않는다 */
+/** 목장 칸. 보이는 숫자가 그대로면 다시 그리지 않는다 */
 export const GroupCard = memo(
   GroupCardView,
   (a, b) =>

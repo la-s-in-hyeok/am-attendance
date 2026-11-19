@@ -52,7 +52,7 @@ function MemberRowView({ member, status, service, reason, groupName, onToggle, o
               ? 'bg-ink text-white'
               : absent
                 ? `${STATUS_STYLE[status].soft} ${STATUS_STYLE[status].ink}`
-                : 'border-2 border-line bg-surface'
+                : 'border-2 border-ink-3/35 bg-surface'
           }`}
         >
           {present && <Icon name="check" size={18} strokeWidth={3} />}
@@ -66,7 +66,7 @@ function MemberRowView({ member, status, service, reason, groupName, onToggle, o
             {member.role && (
               <span
                 className={`shrink-0 rounded-md px-1.5 py-[3px] text-[13px] leading-none font-bold ${
-                  present ? 'bg-black/10 text-ink' : 'bg-[#f1f1ec] text-ink-2'
+                  present ? 'bg-black/10 text-ink' : 'bg-muted text-ink-2'
                 }`}
               >
                 {ROLE_LABEL[member.role]}
@@ -89,7 +89,7 @@ function MemberRowView({ member, status, service, reason, groupName, onToggle, o
         onClick={() => onAbsent(member.id)}
         aria-disabled={locked || undefined}
         className={`my-2 mr-2 shrink-0 rounded-xl px-3.5 text-[14px] font-semibold transition ${
-          present ? 'text-ink/70 hover:bg-black/5 active:bg-black/10' : 'bg-[#f3f3ef] text-ink-2 hover:bg-[#ececE7] active:bg-[#e6e6e0]'
+          present ? 'text-ink/70 hover:bg-black/5 active:bg-black/10' : 'bg-muted text-ink-2 hover:bg-track active:bg-track'
         } ${locked ? 'opacity-35' : ''}`}
       >
         결석

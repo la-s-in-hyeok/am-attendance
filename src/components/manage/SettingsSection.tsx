@@ -72,7 +72,7 @@ export function SettingsSection() {
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-present" />
+                <span className="h-2 w-2 rounded-full bg-accent" />
                 체험 모드
               </span>
             )}

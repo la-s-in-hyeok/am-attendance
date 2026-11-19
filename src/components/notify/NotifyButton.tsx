@@ -66,7 +66,7 @@ export function NotifyButton() {
           onClick={() => void tap()}
           aria-label="알림 켜짐"
           title="알림 켜짐"
-          className="relative inline-flex h-9 w-9 items-center justify-center rounded-full bg-present-soft text-present-ink transition before:absolute before:-inset-1 before:content-[''] active:scale-95"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-brand shadow-[0_2px_6px_rgb(4_40_66/0.18)] transition before:absolute before:-inset-1 before:content-[''] active:scale-95"
         >
           <Bell size={17} filled />
         </button>
@@ -75,7 +75,7 @@ export function NotifyButton() {
           type="button"
           onClick={() => void tap()}
           disabled={busy}
-          className="relative inline-flex h-9 items-center gap-1.5 rounded-full bg-surface px-3 text-[13px] font-bold whitespace-nowrap text-ink shadow-[var(--shadow-card)] transition before:absolute before:inset-x-0 before:-inset-y-1 before:content-[''] active:scale-95 disabled:opacity-60"
+          className="relative inline-flex h-9 items-center gap-1.5 rounded-full bg-white px-3 text-[13px] font-bold whitespace-nowrap text-brand shadow-[0_2px_6px_rgb(4_40_66/0.18)] transition before:absolute before:inset-x-0 before:-inset-y-1 before:content-[''] active:scale-95 disabled:opacity-60"
         >
           <Bell size={16} />
           알림 켜기
@@ -86,7 +86,7 @@ export function NotifyButton() {
         <ol className="space-y-2.5">
           {['사파리 아래쪽 공유 버튼을 눌러요', '‘홈 화면에 추가’를 눌러요', '홈 화면의 출석부 아이콘으로 열고 ‘알림 켜기’를 눌러요'].map((s, i) => (
             <li key={s} className="flex gap-3 text-[15px] leading-relaxed text-ink-2">
-              <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-present text-[13px] font-bold text-ink">
+              <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-[13px] font-bold text-white">
                 {i + 1}
               </span>
               <span className="min-w-0">{s}</span>

@@ -101,7 +101,7 @@ export function RemovedSection() {
               <button
                 type="button"
                 onClick={() => setShowAll(true)}
-                className="h-12 w-full text-sm font-semibold text-ink-2 hover:bg-black/[0.02]"
+                className="h-12 w-full text-sm font-semibold text-brand-ink hover:bg-hover active:bg-muted"
               >
                 {sorted.length - PAGE}명 더 보기
               </button>

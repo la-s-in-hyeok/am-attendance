@@ -57,11 +57,11 @@ export function MenuRow({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex min-h-[60px] w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-black/[0.02] active:bg-black/5 disabled:cursor-default disabled:opacity-60"
+      className="flex min-h-[60px] w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-hover active:bg-muted disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
     >
       <span
         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
-          danger ? 'bg-danger/10 text-danger' : 'bg-[#f3f3ef] text-ink-2'
+          danger ? 'bg-danger-soft text-danger ring-1 ring-danger-line' : 'bg-brand-soft text-brand'
         }`}
       >
         <Icon name={icon} size={19} />
@@ -81,7 +81,7 @@ export function RoleTag({ role }: { role: Role }) {
   return (
     <span
       className={`inline-flex h-5 shrink-0 items-center rounded-full px-2 text-[12px] font-bold ${
-        role === 'leader' ? 'bg-present text-ink' : 'bg-present-soft text-present-ink'
+        role === 'leader' ? 'bg-brand text-white' : 'bg-brand-soft text-brand-ink'
       }`}
     >
       {ROLE_LABEL[role]}
@@ -101,12 +101,13 @@ export function Callout({
   children: ReactNode
   className?: string
 }) {
+  // 주의 = 주황, 위험 = 빨강, 안내 = 연한 파랑 (노랑은 1부 출석 색이라 쓰지 않는다)
   const style =
     tone === 'warn'
-      ? 'bg-present-soft text-present-ink'
+      ? 'bg-accent-soft text-accent-soft-ink'
       : tone === 'danger'
-        ? 'bg-danger/10 text-danger'
-        : 'bg-[#f3f3ef] text-ink-2'
+        ? 'bg-danger-soft text-danger ring-1 ring-danger-line'
+        : 'bg-brand-soft text-brand-ink'
   return (
     <div className={`flex gap-2.5 rounded-2xl px-4 py-3 text-[13px] leading-relaxed ${style} ${className}`}>
       {icon && <Icon name={icon} size={17} className="mt-px shrink-0" />}
@@ -179,7 +180,7 @@ export function GroupPicker({
           type="button"
           disabled={disabled}
           onClick={() => onPick(g)}
-          className="flex min-h-[64px] flex-col items-start justify-center rounded-2xl border border-line bg-surface px-4 py-2.5 text-left transition hover:border-ink-3 active:bg-present-soft disabled:opacity-50"
+          className="flex min-h-[64px] flex-col items-start justify-center rounded-2xl border border-line bg-surface px-4 py-2.5 text-left transition hover:border-brand active:bg-brand-soft disabled:opacity-50"
         >
           <span className="w-full truncate text-[15px] font-bold">{g.name}</span>
           <span className="text-xs text-ink-3">{info.get(g.id)?.count ?? 0}명</span>
@@ -225,9 +226,9 @@ export function Collapsible({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex min-h-[60px] w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-black/[0.02] active:bg-black/5"
+        className="flex min-h-[60px] w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-hover active:bg-muted"
       >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#f3f3ef] text-ink-2">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-brand">
           <Icon name={icon} size={19} />
         </span>
         <span className="min-w-0 flex-1 text-[15px] font-semibold">
@@ -243,7 +244,7 @@ export function Collapsible({
 /** 첫 글자 동그라미 */
 export function Initial({ text }: { text: string }) {
   return (
-    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-present-soft text-[16px] font-extrabold text-present-ink">
+    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-[16px] font-bold text-brand-ink">
       {Array.from(text.trim())[0]?.toUpperCase() ?? '?'}
     </span>
   )

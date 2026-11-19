@@ -9,7 +9,7 @@ const LEGEND = [
   { key: 'away', label: STATUS_LABEL.away, dot: STATUS_STYLE.away.dot },
   { key: 'nocontact', label: STATUS_LABEL.nocontact, dot: STATUS_STYLE.nocontact.dot },
   { key: 'other', label: STATUS_LABEL.other, dot: STATUS_STYLE.other.dot },
-  { key: 'unchecked', label: '미확인', dot: 'bg-[#efefea] ring-1 ring-line' },
+  { key: 'unchecked', label: '미확인', dot: 'bg-track ring-1 ring-line' },
 ] as const
 
 /** 고른 달의 주일별 출석 흐름 */
@@ -29,7 +29,7 @@ export function WeeklyTrend({ points, onOpen }: { points: WeekPoint[]; onOpen: (
               <button
                 type="button"
                 onClick={() => onOpen(p.date)}
-                className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-black/[0.02] active:bg-black/[0.04] sm:px-5"
+                className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-hover active:bg-muted sm:px-5"
                 aria-label={`${labelDot(p.date)} 주일 보고서 보기 (1부 ${t.service1}명, 2부 ${t.service2}명)`}
               >
                 <span className="tabular w-11 shrink-0 text-[15px] font-bold">{labelDot(p.date)}</span>
@@ -76,7 +76,7 @@ export function WeeklyTrend({ points, onOpen }: { points: WeekPoint[]; onOpen: (
           )
         })}
       </ul>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-line bg-[#fbfbf9] px-4 py-2.5 sm:px-5">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-line bg-hover px-4 py-2.5 sm:px-5">
         {LEGEND.map((l) => (
           <span key={l.key} className="inline-flex items-center gap-1.5 text-[13px] text-ink-3">
             <span className={`h-2 w-2 rounded-full ${l.dot}`} />

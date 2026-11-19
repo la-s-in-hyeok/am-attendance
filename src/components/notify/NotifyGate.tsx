@@ -232,7 +232,7 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
         {chromeHref && (
           <a
             href={chromeHref}
-            className="flex h-14 w-full items-center justify-center rounded-2xl bg-present text-[17px] font-semibold text-ink transition hover:brightness-[0.97] active:brightness-95"
+            className="flex h-14 w-full items-center justify-center rounded-2xl bg-brand text-[17px] font-semibold text-white shadow-[0_4px_12px_rgb(10_114_180/0.25)] transition hover:bg-brand-deep active:bg-brand-deep"
           >
             {/* 카톡은 휴대폰의 기본 브라우저(갤럭시는 대개 삼성 인터넷)로 열어요 */}
             {kakao ? '다른 브라우저로 열기' : '크롬으로 열기'}
@@ -299,7 +299,7 @@ function Steps({ items }: { items: string[] }) {
     <ol className="space-y-2.5 rounded-2xl bg-surface p-4 shadow-[var(--shadow-card)]">
       {items.map((s, i) => (
         <li key={s} className="flex gap-3 text-[15px] leading-relaxed text-ink">
-          <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-present text-[13px] font-bold text-ink">
+          <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-[13px] font-bold text-white">
             {i + 1}
           </span>
           <span className="min-w-0">{s}</span>

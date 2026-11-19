@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../../store'
 import { compareMembers } from '../../lib/compute'
-import { Button, Card, Empty, Icon, PageHeader } from '../ui'
+import { Card, Empty, Icon, PageHeader } from '../ui'
 import { AddMembers } from './AddMembers'
 import { GroupDeleteSheet } from './GroupDeleteSheet'
 import { GroupNameSheet } from './GroupNameSheet'
@@ -35,15 +35,7 @@ export function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () =
 
   return (
     <div className="anim-fade contain-inline-size">
-      <button
-        type="button"
-        onClick={onBack}
-        className="-ml-2 inline-flex h-11 items-center gap-0.5 rounded-full pr-3.5 pl-1.5 text-[15px] font-semibold text-ink-2 transition hover:bg-black/5 active:bg-black/10"
-      >
-        <Icon name="chevronLeft" size={22} />
-        관리
-      </button>
-
+      {/* 파란 띠: 위에는 목장 이름, 아래 줄에 '‹ 관리'(돌아가기)와 '이름 바꾸기' */}
       <PageHeader
         title={`${group.name} 목장`}
         sub={
@@ -51,12 +43,27 @@ export function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () =
             {leader ? `목자 ${leader.name}` : '목자 미정'} · {manager ? `총무 ${manager.name}` : '총무 미정'} · {current.length}명
           </>
         }
-        right={
-          <Button variant="secondary" size="sm" icon="edit" className="max-md:h-11" onClick={() => setRenaming(true)}>
+      >
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="관리로 돌아가기"
+            className="inline-flex h-11 items-center gap-0.5 rounded-full border-[1.5px] border-white/55 pr-4 pl-2 text-[15px] font-semibold text-white transition hover:bg-white/10 focus-visible:outline-white active:bg-white/15"
+          >
+            <Icon name="chevronLeft" size={20} strokeWidth={2.2} />
+            관리
+          </button>
+          <button
+            type="button"
+            onClick={() => setRenaming(true)}
+            className="inline-flex h-11 items-center gap-1.5 rounded-full bg-white px-4 text-[15px] font-bold text-brand shadow-[0_2px_6px_rgb(4_40_66/0.18)] transition hover:bg-brand-soft focus-visible:outline-white active:bg-brand-soft"
+          >
+            <Icon name="edit" size={16} />
             이름 바꾸기
-          </Button>
-        }
-      />
+          </button>
+        </div>
+      </PageHeader>
 
       <ViewingDateNotice className="mb-3" />
 
@@ -83,7 +90,7 @@ export function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () =
                       key={m.id}
                       type="button"
                       onClick={() => setMemberId(m.id)}
-                      className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-black/[0.02] active:bg-black/5"
+                      className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-hover active:bg-muted"
                     >
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5">
@@ -93,7 +100,7 @@ export function GroupDetail({ groupId, onBack }: { groupId: string; onBack: () =
                         {(later || m.note) && (
                           <span className="mt-0.5 block truncate text-[13px] text-ink-3">
                             {later && (
-                              <span className="font-semibold text-present-ink">
+                              <span className="font-semibold text-accent-soft-ink">
                                 {labelDay(m.joinedOn)} 출석부부터{m.note ? ' · ' : ''}
                               </span>
                             )}

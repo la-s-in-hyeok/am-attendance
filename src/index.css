@@ -1,22 +1,34 @@
 @import 'tailwindcss';
 
 /*
- * 디자인 토큰
+ * 디자인 토큰 (시안 B · AM 브랜드 컬러)
+ * - 대표색 = 로고의 파랑, 강조 = 로고의 주황 (조금만)
  * - 1부 출석 = 노랑, 2부 출석 = 민트 (엑셀 출석부와 같은 색)
- * - 타지 = 하늘, 연락두절 = 회색, 기타 = 보라
+ * - 타지 = 남보라, 연락두절 = 회색, 기타 = 보라
+ * - 완료 = 초록, 미완료 = 빨강 (글자·아이콘도 함께 써서 색만으로 구분하지 않게)
  */
 @theme {
-  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo',
-    'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  --font-sans: 'IBM Plex Sans KR', -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR',
+    'Malgun Gothic', sans-serif;
 
-  --color-bg: #f6f6f3;
+  --color-bg: #f3f6f9;
   --color-surface: #ffffff;
-  --color-ink: #17181c;
-  --color-ink-2: #4b4f58;
-  --color-ink-3: #8a8f99;
-  --color-line: #e8e8e3;
+  --color-ink: #14212e;
+  --color-ink-2: #3a4754;
+  --color-ink-3: #5f6b78;
+  --color-line: #dce3ea;
 
-  --color-brand: #17181c;
+  /* 로고 파랑: 위쪽 띠, 고른 것, 주요 버튼 (흰 글씨와 4.5:1 이상) */
+  --color-brand: #0a72b4;
+  --color-brand-deep: #085d93;
+  --color-brand-soft: #e1eef8;
+  --color-brand-ink: #0a5c91;
+
+  /* 로고 주황: '이번 주' 같은 작은 표시에만 */
+  --color-accent: #f59331;
+  --color-accent-ink: #2e1700;
+  --color-accent-soft: #fff0e0;
+  --color-accent-soft-ink: #a84f00;
 
   --color-present: #ffd84d;
   --color-present-soft: #fff4c2;
@@ -27,24 +39,34 @@
   --color-present2-soft: #dcf7ec;
   --color-present2-ink: #0d5c40;
 
-  --color-away: #5aa9ff;
-  --color-away-soft: #e3f0ff;
-  --color-away-ink: #0b4a8f;
+  --color-away: #5b7cfa;
+  --color-away-soft: #eaefff;
+  --color-away-ink: #2f47b8;
 
-  --color-nocontact: #8a8f99;
-  --color-nocontact-soft: #eceef1;
-  --color-nocontact-ink: #3b3f46;
+  --color-nocontact: #8a96a3;
+  --color-nocontact-soft: #eef1f4;
+  --color-nocontact-ink: #46525e;
 
-  --color-other: #a77bff;
-  --color-other-soft: #f0e8ff;
-  --color-other-ink: #4c1fa3;
+  --color-other: #9b6bd8;
+  --color-other-soft: #f3ecfc;
+  --color-other-ink: #6a3db0;
 
-  --color-danger: #ef4444;
-  --color-ok: #16a34a;
+  --color-danger: #b01f28;
+  --color-danger-soft: #fff5f5;
+  --color-danger-line: #f0b9bc;
+  --color-ok: #146e40;
+  --color-ok-icon: #1a8a50;
+  --color-ok-soft: #eaf6ef;
+  --color-ok-line: #9ad3b2;
+
+  /* 차분한 회색 바탕 (칩·막대 바닥·눌림) */
+  --color-muted: #eef2f6;
+  --color-track: #e3e9ef;
+  --color-hover: #f5f8fb;
 
   --radius-card: 20px;
-  --shadow-card: 0 1px 2px rgb(16 18 24 / 0.04), 0 4px 16px rgb(16 18 24 / 0.05);
-  --shadow-pop: 0 10px 40px rgb(16 18 24 / 0.18);
+  --shadow-card: 0 2px 12px rgb(16 42 67 / 0.07);
+  --shadow-pop: 0 10px 40px rgb(16 42 67 / 0.2);
 }
 
 html,

@@ -115,6 +115,13 @@ export function monthServiceSplit(
   })
 }
 
+/** 그 달 출석률(%)을 1부·2부 몫으로 — 두 값의 합이 반올림한 출석률과 같도록 */
+export function servicePcts(s: MonthStat | undefined, sp: ServiceSplit | undefined): [number, number] {
+  if (!s || s.possible <= 0 || !sp) return [0, 0]
+  const [a, b] = roundParts([(sp.service1 / s.possible) * 100, (sp.service2 / s.possible) * 100])
+  return [a, b]
+}
+
 /** 기간 안에서 사람별 2부 출석 횟수 (memberStats 와 같은 기준). 1부 = 출석 - 2부 */
 export function memberService2(members: Member[], records: AttendanceRecord[], from: ISODate, to: ISODate): Map<string, number> {
   const memberById = new Map(members.map((m) => [m.id, m]))

@@ -73,17 +73,17 @@ export function SeedImportCard({ onStartEmpty }: { onStartEmpty: () => void }) {
   return (
     <>
       <Card className="anim-pop overflow-hidden">
-        <div className="bg-present px-5 pt-6 pb-5">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface text-ink shadow-sm">
+        <div className="bg-brand px-5 pt-6 pb-5 text-white">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface text-brand shadow-[0_2px_6px_rgb(4_40_66/0.18)]">
             <Icon name="sheet" size={24} />
           </span>
-          <p className="mt-4 text-[13px] font-bold text-ink/60">처음 오셨네요! 명단부터 넣어 볼까요?</p>
-          <h2 className="mt-1 text-[21px] leading-snug font-extrabold tracking-tight">
+          <p className="mt-4 text-[13px] font-bold text-white">처음 오셨네요! 명단부터 넣어 볼까요?</p>
+          <h2 className="mt-1 text-[21px] leading-snug font-bold tracking-tight">
             엑셀 출석부에서
             <br />
             명단 불러오기
           </h2>
-          <p className="mt-1.5 text-[14px] leading-relaxed text-ink/70">
+          <p className="mt-1.5 text-[14px] leading-relaxed text-white">
             지금 쓰는 출석부 파일(.xlsx)을 고르면 목장, 목자·총무, 목장 가족을 한 번에 넣어요.
           </p>
         </div>
@@ -107,7 +107,7 @@ export function SeedImportCard({ onStartEmpty }: { onStartEmpty: () => void }) {
                 <label className="mt-3 block">
                   <span className="mb-1.5 block text-sm font-medium text-ink-2">어느 시트의 명단을 쓸까요? (보통 맨 앞 = 가장 최근)</span>
                   <select
-                    className="h-12 w-full rounded-2xl border border-line bg-[#fafaf8] px-4 font-semibold outline-none focus:border-ink"
+                    className="h-12 w-full rounded-2xl border border-line bg-hover px-4 font-semibold outline-none transition focus:border-brand focus:bg-surface"
                     value={picked}
                     onChange={(e) => setPicked(Number(e.target.value))}
                   >
@@ -122,7 +122,7 @@ export function SeedImportCard({ onStartEmpty }: { onStartEmpty: () => void }) {
               {sheet && (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {sheet.groups.map((g) => (
-                    <span key={g.name} className="inline-flex h-8 items-center gap-1 rounded-full bg-[#f3f3ef] px-3 text-[13px] font-semibold text-ink-2">
+                    <span key={g.name} className="inline-flex h-8 items-center gap-1 rounded-full bg-muted px-3 text-[13px] font-semibold text-ink-2">
                       {g.name}
                       <span className="font-medium text-ink-3">{g.members.length}</span>
                     </span>

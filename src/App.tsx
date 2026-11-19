@@ -138,7 +138,7 @@ export default function App() {
   if (booting)
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-3">
-        <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-line border-t-present" />
+        <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-line border-t-brand" />
         <p className="text-sm font-medium">출석부를 불러오는 중…</p>
       </div>
     )
@@ -147,7 +147,7 @@ export default function App() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
         <p className="font-semibold">{bootError}</p>
-        <button className="h-11 rounded-2xl bg-ink px-5 font-semibold text-white" onClick={() => location.reload()}>
+        <button className="h-11 rounded-2xl bg-brand px-5 font-semibold text-white" onClick={() => location.reload()}>
           새로고침
         </button>
       </div>
@@ -170,7 +170,7 @@ export default function App() {
                 onClick={() => goTab(t.id)}
                 aria-current={tab === t.id ? 'page' : undefined}
                 className={`flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] font-semibold transition ${
-                  tab === t.id ? 'bg-ink text-white' : 'text-ink-2 hover:bg-black/5'
+                  tab === t.id ? 'bg-brand text-white' : 'text-ink-2 hover:bg-brand-soft'
                 }`}
               >
                 <Icon name={t.icon} size={19} />
@@ -185,14 +185,6 @@ export default function App() {
 
         {/* min-w-0: 넓은 표가 있어도 본문이 화면 밖으로 밀려나지 않게 (표는 자기 칸 안에서 가로 스크롤) */}
         <main className="mx-auto w-full max-w-3xl min-w-0 pt-3 xl:max-w-4xl pr-[max(1rem,env(safe-area-inset-right))] pb-[calc(6.5rem+env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] md:px-8 md:pt-8 md:pb-12">
-          {/* 휴대폰: 맨 위 로고 (목장 화면처럼 위쪽 막대가 따로 있는 화면에서는 숨김) */}
-          {!(tab === 'attend' && groupId) && (
-            <div className="no-print safe-top md:hidden">
-              <div className="flex h-11 items-center">
-                <img src="./logo-full.png" alt="AM청년회" width={78} height={28} className="h-7 w-auto" />
-              </div>
-            </div>
-          )}
           {tab === 'attend' && <AttendPage />}
           {tab === 'report' && <ReportPage />}
           {tab === 'stats' && <StatsPage />}
@@ -202,7 +194,7 @@ export default function App() {
         {/* 휴대폰: 아래 탭 */}
         <nav
           aria-label="메뉴"
-          className="kb-hide no-print safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl md:hidden"
+          className="kb-hide no-print safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 shadow-[0_-4px_16px_rgb(16_42_67/0.06)] backdrop-blur-xl md:hidden"
         >
           <div className="mx-auto flex max-w-lg">
             {TABS.map((t) => (
@@ -212,10 +204,10 @@ export default function App() {
                 onClick={() => goTab(t.id)}
                 aria-current={tab === t.id ? 'page' : undefined}
                 className={`flex h-16 flex-1 flex-col items-center justify-center gap-1 text-[13px] leading-none transition ${
-                  tab === t.id ? 'font-bold text-ink' : 'font-semibold text-ink-3'
+                  tab === t.id ? 'font-bold text-brand' : 'font-medium text-ink-3'
                 }`}
               >
-                <span className={`flex h-7 w-12 items-center justify-center rounded-full transition ${tab === t.id ? 'bg-present' : ''}`}>
+                <span className={`flex h-[30px] w-14 items-center justify-center rounded-full transition ${tab === t.id ? 'bg-brand-soft' : ''}`}>
                   <Icon name={t.icon} size={20} strokeWidth={tab === t.id ? 2.2 : 1.9} />
                 </span>
                 {t.label}

@@ -59,10 +59,10 @@ export function SheetPanel({
   return (
     <div>
       {/* 받기·인쇄 */}
-      <div className="mb-3 grid grid-cols-3 gap-2">
-        <ActionTile icon="word" label="Word로 받기" loading={busy === 'docx'} disabled={!!busy} onClick={() => download('docx')} />
-        <ActionTile icon="sheet" label="엑셀로 받기" loading={busy === 'xlsx'} disabled={!!busy} onClick={() => download('xlsx')} />
-        <ActionTile icon="print" label="인쇄 / PDF" onClick={() => onPrint({ kind: 'all' })} />
+      <div className="mb-4 grid grid-cols-3 gap-2">
+        <ActionTile icon="sheet" label="엑셀" title="엑셀로 받기" loading={busy === 'xlsx'} disabled={!!busy} onClick={() => download('xlsx')} />
+        <ActionTile icon="word" label="Word" title="Word로 받기" loading={busy === 'docx'} disabled={!!busy} onClick={() => download('docx')} />
+        <ActionTile icon="print" label="인쇄·PDF" title="전체 출석부 인쇄 또는 PDF로 저장" onClick={() => onPrint({ kind: 'all' })} />
       </div>
 
       <Card className="overflow-hidden">
@@ -79,7 +79,7 @@ export function SheetPanel({
           표만 옆으로 민다.
           - w-0 min-w-full: 넓은 표가 화면 전체 폭을 밀어내지 않게 (PC 왼쪽 메뉴 옆에서 페이지가 옆으로 밀리던 문제)
           - 여백(px)은 스크롤 안쪽에 둔다: 바깥에 두면 고정된 '목장명' 칸 왼쪽 틈으로 밀린 이름이 비쳐 보인다
-          - 표 최소 폭: 휴대폰 680px, PC 660px (PC 본문 폭 안에 옆 스크롤 없이 들어가게)
+          - 표 최소 폭: 휴대폰 720px, PC 700px (PC 본문 폭 안에 옆 스크롤 없이 들어가게)
         */}
         <div className="w-0 min-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
           <div className="min-w-[720px] px-5 pb-4 md:min-w-[700px]">
@@ -88,8 +88,6 @@ export function SheetPanel({
         </div>
         <Legend />
       </Card>
-      <p className="mt-2 px-1 text-[13px] text-ink-3 md:hidden">표를 옆으로 밀어서 볼 수 있어요. 이름을 누르면 사유가 보여요.</p>
-
     </div>
   )
 }
@@ -114,5 +112,3 @@ function Legend() {
     </div>
   )
 }
-
-/** 인쇄 고르기: 전체 / 목장별로 한 장씩 / 한 목장만 */

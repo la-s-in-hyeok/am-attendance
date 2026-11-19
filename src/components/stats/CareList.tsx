@@ -3,10 +3,11 @@ import type { Group, Member } from '../../lib/types'
 import { STATUS_LABEL } from '../../lib/types'
 import { labelDot } from '../../lib/dates'
 import { Card, Icon, STATUS_STYLE } from '../ui'
-import type { CareItem } from './statsCompute'
+import { CARE_MIN_STREAK, type CareItem } from './statsCompute'
 import { GRID_LIST } from './parts'
 
-const PAGE = 8
+// 휴대폰 한 화면에 들어오도록 처음에는 몇 명만 (넓은 PC 화면은 두 줄씩이라 짝수로)
+const PAGE = 6
 
 /** 관심이 필요한 사람 (연속 결석) */
 export function CareList({
@@ -24,10 +25,10 @@ export function CareList({
   if (items.length === 0)
     return (
       <Card className="flex items-center gap-3 px-5 py-5">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-present-soft text-present-ink">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-ok-line bg-ok-soft text-ok-icon">
           <Icon name="check" size={20} strokeWidth={2.4} />
         </span>
-        <p className="text-[15px] font-semibold text-ink-2">지금은 3주 이상 연속으로 못 나온 분이 없어요.</p>
+        <p className="text-[15px] font-semibold text-ok">지금은 {CARE_MIN_STREAK}주 이상 연속으로 못 나온 분이 없어요.</p>
       </Card>
     )
 
@@ -46,9 +47,9 @@ export function CareList({
               <button
                 type="button"
                 onClick={() => onOpen(it.member)}
-                className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-black/[0.02] active:bg-black/[0.04] sm:px-5"
+                className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition hover:bg-hover active:bg-muted sm:px-5"
               >
-                <span className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl bg-danger/10 text-danger">
+                <span className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border border-danger-line bg-danger-soft text-danger">
                   <span className="tabular text-[17px] leading-none font-extrabold">{it.streak}</span>
                   <span className="mt-0.5 text-[11px] leading-none font-bold">주째</span>
                 </span>
@@ -83,7 +84,7 @@ export function CareList({
         <button
           type="button"
           onClick={() => setShowAll((v) => !v)}
-          className="flex h-12 w-full items-center justify-center gap-1 border-t border-line text-sm font-semibold text-ink-2 transition hover:bg-black/[0.02]"
+          className="flex h-12 w-full items-center justify-center gap-1 border-t border-line text-sm font-semibold text-ink-2 transition hover:bg-hover"
         >
           {showAll ? '접기' : `${items.length - PAGE}명 더 보기`}
           <Icon name="chevronDown" size={16} className={showAll ? 'rotate-180' : ''} />

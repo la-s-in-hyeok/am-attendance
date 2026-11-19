@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes } from 'react'
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes } from 'react'
 import type { Service, Status } from '../lib/types'
 import { STATUS_LABEL } from '../lib/types'
 import { useStore } from '../store'
@@ -68,11 +68,12 @@ export function Icon({ name, size = 20, className = '', strokeWidth = 1.9 }: { n
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'yellow'
 
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-ink text-white hover:bg-black active:bg-black disabled:bg-ink-3',
-  secondary: 'bg-surface text-ink border border-line hover:bg-[#fafaf7] active:bg-[#f2f2ee]',
+  primary: 'bg-brand text-white shadow-[0_4px_12px_rgb(10_114_180/0.25)] hover:bg-brand-deep active:bg-brand-deep disabled:bg-ink-3 disabled:shadow-none',
+  secondary: 'bg-surface text-ink border border-line hover:bg-hover active:bg-muted',
   ghost: 'bg-transparent text-ink-2 hover:bg-black/5 active:bg-black/10',
   danger: 'bg-danger text-white hover:brightness-95 active:brightness-90',
-  yellow: 'bg-present text-ink hover:brightness-[0.97] active:brightness-95',
+  // 예전 이름 그대로 두고 대표 버튼(파랑)으로 그린다. 출석 표시(1부 노랑)는 버튼이 아니라 이름 칸에서 쓴다
+  yellow: 'bg-brand text-white shadow-[0_4px_12px_rgb(10_114_180/0.25)] hover:bg-brand-deep active:bg-brand-deep disabled:shadow-none',
 }
 
 export function Button({
@@ -267,9 +268,11 @@ export function Sheet({
   }, [open])
 
   if (!open) return null
+  // 파란 띠 안에서 열어도(예: 띠의 알림 버튼) 창 안은 띠 모양·흰 글씨를 물려받지 않게
   return (
+    <OnBandContext.Provider value={false}>
     <div
-      className="no-print fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
+      className="no-print fixed inset-0 z-50 flex items-end justify-center text-ink sm:items-center sm:p-6"
       style={fit ? { top: fit.top, height: fit.height, bottom: 'auto' } : undefined}
       role="dialog"
       aria-modal="true"
@@ -297,6 +300,7 @@ export function Sheet({
         {footer && <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div>}
       </div>
     </div>
+    </OnBandContext.Provider>
   )
 }
 
@@ -351,7 +355,7 @@ export function TextField({
     <label className={`block ${className}`}>
       {label && <span className="mb-1.5 block text-sm font-medium text-ink-2">{label}</span>}
       <input
-        className="h-12 w-full rounded-2xl border border-line bg-[#fafaf8] px-4 outline-none transition placeholder:text-ink-3 focus:border-ink focus:bg-surface"
+        className="h-12 w-full rounded-2xl border border-line bg-hover px-4 outline-none transition placeholder:text-ink-3 focus:border-brand focus:bg-surface"
         {...rest}
       />
     </label>
@@ -367,7 +371,7 @@ export function TextArea({
     <label className={`block ${className}`}>
       {label && <span className="mb-1.5 block text-sm font-medium text-ink-2">{label}</span>}
       <textarea
-        className="min-h-24 w-full resize-y rounded-2xl border border-line bg-[#fafaf8] px-4 py-3 leading-relaxed outline-none transition placeholder:text-ink-3 focus:border-ink focus:bg-surface"
+        className="min-h-24 w-full resize-y rounded-2xl border border-line bg-hover px-4 py-3 leading-relaxed outline-none transition placeholder:text-ink-3 focus:border-brand focus:bg-surface"
         {...rest}
       />
     </label>
@@ -381,7 +385,7 @@ export const STATUS_STYLE: Record<Status | 'unchecked', { bg: string; soft: stri
   away: { bg: 'bg-away', soft: 'bg-away-soft', ink: 'text-away-ink', dot: 'bg-away' },
   nocontact: { bg: 'bg-nocontact', soft: 'bg-nocontact-soft', ink: 'text-nocontact-ink', dot: 'bg-nocontact' },
   other: { bg: 'bg-other', soft: 'bg-other-soft', ink: 'text-other-ink', dot: 'bg-other' },
-  unchecked: { bg: 'bg-line', soft: 'bg-[#f3f3ef]', ink: 'text-ink-3', dot: 'bg-line' },
+  unchecked: { bg: 'bg-line', soft: 'bg-muted', ink: 'text-ink-3', dot: 'bg-line' },
 }
 
 /** 예배별 출석 색: 1부 = 노랑, 2부 = 민트 */
@@ -432,7 +436,7 @@ export function StackBar({
 }) {
   const w = (n: number) => (total > 0 ? `${(n / total) * 100}%` : '0%')
   return (
-    <div className={`flex h-2 w-full overflow-hidden rounded-full bg-[#efefea] ${className}`}>
+    <div className={`flex h-2 w-full overflow-hidden rounded-full bg-track ${className}`}>
       <div className="bg-present transition-all" style={{ width: w(present - service2) }} />
       <div className="bg-present2 transition-all" style={{ width: w(service2) }} />
       <div className="bg-away transition-all" style={{ width: w(away) }} />
@@ -450,12 +454,12 @@ export function Ring({ value, size = 44, stroke = 5, children }: { value: number
   return (
     <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} stroke="#efefea" strokeWidth={stroke} fill="none" />
+        <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--color-brand-soft)" strokeWidth={stroke} fill="none" />
         <circle
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke="var(--color-present)"
+          stroke="var(--color-brand)"
           strokeWidth={stroke}
           fill="none"
           strokeLinecap="round"
@@ -471,28 +475,54 @@ export function Ring({ value, size = 44, stroke = 5, children }: { value: number
 
 /* ───────────── 주일 선택 ───────────── */
 
-/** ‹ 2026년 11월 15일 (주일) › — 지난 주일/다음 주일로 이동 */
+/**
+ * ‹ 2026년 11월 15일 (주일) › — 지난 주일/다음 주일로 이동.
+ * 파란 띠(PageHeader) 안에 두면 띠에 맞는 모양(진한 파랑 알약)으로 그린다
+ */
 export function WeekSwitcher({ className = '' }: { className?: string }) {
   const date = useStore((s) => s.date)
   const setDate = useStore((s) => s.setDate)
+  const onBand = useOnBand()
   const thisSunday = currentSunday()
   const isThisWeek = date === thisSunday
   // 다음 주일까지만 미리 열 수 있다
   const canNext = date < addDays(thisSunday, 7)
-  // '이번 주' 버튼이 붙는 좁은 휴대폰에서는 '(주일)'을 빼서 날짜가 잘리지 않게 한다
   const full = labelFull(date)
-  const cut = full.lastIndexOf(' (')
+  const state = isThisWeek ? '이번 주' : date < thisSunday ? '지난 출석부' : '다음 주 출석부'
+  const arrow = onBand ? 'text-white hover:bg-white/10 active:bg-white/15 disabled:opacity-40' : 'disabled:opacity-30'
   return (
-    <div className={`flex items-center gap-1 ${className}`}>
-      <IconButton icon="chevronLeft" label="지난 주일" onClick={() => setDate(addDays(date, -7))} />
-      <label className="relative flex min-h-11 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center rounded-xl has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-ink">
-        <span className="tabular max-w-full truncate text-[15px] font-bold">
-          {cut > 0 ? full.slice(0, cut) : full}
-          {cut > 0 && <span className={isThisWeek ? '' : 'max-[419px]:hidden'}>{full.slice(cut)}</span>}
+    <div className={`flex items-center gap-1 ${onBand ? 'min-h-12 rounded-full bg-brand-deep p-0.5 text-white' : ''} ${className}`}>
+      <IconButton icon="chevronLeft" label="지난 주일" className={onBand ? arrow : ''} onClick={() => setDate(addDays(date, -7))} />
+      <label
+        className={`relative flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-center rounded-xl has-[input:focus-visible]:ring-2 ${
+          onBand ? 'flex-row flex-wrap gap-x-2 has-[input:focus-visible]:ring-white' : 'flex-col has-[input:focus-visible]:ring-ink'
+        }`}
+      >
+        <span className={`tabular max-w-full truncate font-bold ${onBand ? 'text-[16px]' : 'text-[15px]'}`}>
+          {(() => {
+            // 좁은 휴대폰에서 '이번 주' 버튼이 붙으면 '(주일)'을 빼서 날짜가 잘리지 않게 한다
+            const text = onBand ? labelMDW(full) : full
+            const at = text.lastIndexOf(' (')
+            if (at < 0) return text
+            return (
+              <>
+                {text.slice(0, at)}
+                <span className={isThisWeek ? '' : 'max-[419px]:hidden'}>{text.slice(at)}</span>
+              </>
+            )
+          })()}
         </span>
-        <span className={`text-[13px] leading-snug font-medium ${isThisWeek ? 'text-present-ink' : 'text-ink-3'}`}>
-          {isThisWeek ? '이번 주 출석부' : date < thisSunday ? '지난 출석부' : '다음 주 출석부'}
-        </span>
+        {onBand ? (
+          isThisWeek ? (
+            <span className="inline-flex h-[22px] shrink-0 items-center rounded-full bg-accent px-2 text-[12px] font-bold text-accent-ink">이번 주</span>
+          ) : (
+            <span className="shrink-0 text-[12px] font-semibold text-white/85">{state}</span>
+          )
+        ) : (
+          <span className={`text-[13px] leading-snug font-medium ${isThisWeek ? 'text-brand-ink' : 'text-ink-3'}`}>
+            {isThisWeek ? '이번 주 출석부' : state}
+          </span>
+        )}
         <input
           type="date"
           aria-label="날짜 고르기"
@@ -505,12 +535,20 @@ export function WeekSwitcher({ className = '' }: { className?: string }) {
           }}
         />
       </label>
-      <IconButton icon="chevronRight" label="다음 주일" disabled={!canNext} className="disabled:opacity-30" onClick={() => canNext && setDate(addDays(date, 7))} />
+      <IconButton
+        icon="chevronRight"
+        label="다음 주일"
+        disabled={!canNext}
+        className={onBand ? arrow : 'disabled:opacity-30'}
+        onClick={() => canNext && setDate(addDays(date, 7))}
+      />
       {!isThisWeek && (
         <button
           type="button"
           onClick={() => setDate(thisSunday)}
-          className="relative ml-1 h-9 shrink-0 rounded-full bg-ink px-3 text-[13px] font-semibold whitespace-nowrap text-white after:absolute after:inset-x-0 after:-inset-y-1"
+          className={`relative ml-1 h-9 shrink-0 rounded-full px-3 text-[13px] font-semibold whitespace-nowrap after:absolute after:inset-x-0 after:-inset-y-1 ${
+            onBand ? 'mr-1 bg-white text-brand' : 'bg-brand text-white'
+          }`}
         >
           이번 주
         </button>
@@ -519,26 +557,38 @@ export function WeekSwitcher({ className = '' }: { className?: string }) {
   )
 }
 
+/** '2026년 11월 15일 (주일)' → '11월 15일 (주일)' (띠 안에서는 올해 연도를 뺀다) */
+function labelMDW(full: string): string {
+  const y = `${currentSunday().slice(0, 4)}년 `
+  return full.startsWith(y) ? full.slice(y.length) : full
+}
+
 /* ───────────── 저장 상태 ───────────── */
 
 export function SyncBadge() {
   const sync = useStore((s) => s.sync)
   const mode = useStore((s) => s.backend.mode)
+  const onBand = useOnBand()
+  const quiet = onBand ? 'text-white' : 'text-ink-3'
   if (sync === 'saving')
     return (
-      <span className="inline-flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap text-ink-3">
-        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ink-3" /> 저장 중
+      <span className={`inline-flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap ${quiet}`}>
+        <span className={`h-1.5 w-1.5 animate-pulse rounded-full ${onBand ? 'bg-white' : 'bg-ink-3'}`} /> 저장 중
       </span>
     )
   if (sync === 'error')
     return (
-      <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap text-danger">
+      <span
+        className={`inline-flex items-center gap-1.5 text-[13px] font-semibold whitespace-nowrap text-danger ${onBand ? 'h-7 rounded-full bg-white px-2.5' : ''}`}
+      >
         <Icon name="cloudOff" size={14} /> 저장 실패
       </span>
     )
   return (
-    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap text-ink-3">
-      <Icon name="cloud" size={14} /> {mode === 'cloud' ? '실시간 저장됨' : '체험 모드'}
+    <span className={`inline-flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap ${quiet}`}>
+      <Icon name="cloud" size={14} />
+      {/* 띠 안 휴대폰에서는 아이콘만 (제목 줄이 두 줄로 밀리지 않게) */}
+      <span className={onBand ? 'max-md:sr-only' : ''}>{mode === 'cloud' ? '실시간 저장됨' : '체험 모드'}</span>
     </span>
   )
 }
@@ -614,7 +664,7 @@ export function Toasts() {
           {t.action && (
             <button
               type="button"
-              className="h-11 shrink-0 rounded-xl bg-white/15 px-3.5 font-bold whitespace-nowrap text-present hover:bg-white/25"
+              className="h-11 shrink-0 rounded-xl bg-white/15 px-3.5 font-bold whitespace-nowrap text-accent hover:bg-white/25"
               onClick={() => {
                 t.action!.run()
                 dismiss(t.id)
@@ -633,7 +683,7 @@ export function Toasts() {
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="flex flex-col items-center px-6 py-14 text-center">
-      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-present-soft text-present-ink">
+      <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-brand-soft text-brand">
         <Icon name="sparkle" size={26} />
       </div>
       <p className="font-bold">{title}</p>
@@ -642,20 +692,40 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
   )
 }
 
-/** 페이지 제목 줄 */
-export function PageHeader({ title, sub, right }: { title: ReactNode; sub?: ReactNode; right?: ReactNode }) {
+/** 파란 띠 안에 있는지 (띠 안의 글씨·버튼은 흰색 계열로 그린다) */
+const OnBandContext = createContext(false)
+export function useOnBand(): boolean {
+  return useContext(OnBandContext)
+}
+
+/**
+ * 페이지 위쪽 파란 띠: 로고 · 제목 · 오른쪽 버튼, 그 아래에 주일 고르기·작은 탭 같은 것(children).
+ * 휴대폰에서는 화면 양옆과 맨 위까지 꽉 채우고, PC 에서는 둥근 카드로 보인다
+ */
+export function PageHeader({ title, sub, right, children }: { title: ReactNode; sub?: ReactNode; right?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex items-end justify-between gap-3 px-1 pt-2 pb-4">
-      <div className="min-w-0">
-        <h1 className="line-clamp-2 text-[26px] leading-tight font-extrabold tracking-tight [overflow-wrap:anywhere] md:text-[28px]">{title}</h1>
-        {sub && <div className="mt-1 text-sm text-ink-3">{sub}</div>}
-      </div>
-      {right && <div className="shrink-0">{right}</div>}
-    </div>
+    <OnBandContext.Provider value={true}>
+      <header className="no-print -mt-3 mr-[calc(-1*max(1rem,env(safe-area-inset-right)))] mb-3 ml-[calc(-1*max(1rem,env(safe-area-inset-left)))] rounded-b-3xl bg-brand pt-[max(env(safe-area-inset-top),0.75rem)] pr-[max(1rem,env(safe-area-inset-right))] pb-4 pl-[max(1rem,env(safe-area-inset-left))] text-white md:mx-0 md:mt-0 md:mb-5 md:rounded-3xl md:px-5 md:pt-4">
+        <div className="flex min-h-11 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            {/* 휴대폰: 로고 (PC 는 왼쪽 메뉴에 있음). 로고 글씨가 어두워서 흰 칩 위에 */}
+            <span className="inline-flex h-9 shrink-0 items-center rounded-[10px] bg-white px-2 max-[359px]:hidden md:hidden">
+              <img src="./logo-full.png" alt="AM청년회" width={73} height={26} className="h-[26px] w-auto" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="line-clamp-2 text-[22px] leading-tight font-bold tracking-tight [overflow-wrap:anywhere] md:text-[26px]">{title}</h1>
+              {sub && <div className="mt-0.5 text-[13px] text-white">{sub}</div>}
+            </div>
+          </div>
+          {right && <div className="shrink-0">{right}</div>}
+        </div>
+        {children && <div className="mt-3">{children}</div>}
+      </header>
+    </OnBandContext.Provider>
   )
 }
 
-/** 세그먼트 버튼 (탭 안의 작은 전환) */
+/** 세그먼트 버튼 (탭 안의 작은 전환). 파란 띠 안에서는 흰 알약 모양으로 그린다 */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -667,21 +737,30 @@ export function Segmented<T extends string>({
   options: { value: T; label: ReactNode }[]
   className?: string
 }) {
+  const onBand = useOnBand()
   return (
-    <div className={`inline-flex rounded-2xl bg-[#ececE7] p-1 ${className}`}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          aria-pressed={value === o.value}
-          onClick={() => onChange(o.value)}
-          className={`h-11 flex-1 rounded-xl px-3 text-sm font-semibold whitespace-nowrap transition md:h-10 ${
-            value === o.value ? 'bg-surface text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className={`inline-flex ${onBand ? 'gap-1.5' : 'rounded-2xl bg-track p-1'} ${className}`}>
+      {options.map((o) => {
+        const on = value === o.value
+        const look = onBand
+          ? on
+            ? 'rounded-full border-[1.5px] border-white bg-white font-bold text-brand'
+            : 'rounded-full border-[1.5px] border-white/55 font-medium text-white hover:bg-white/10'
+          : on
+            ? 'rounded-xl bg-brand font-bold text-white shadow-[0_2px_6px_rgb(10_114_180/0.28)]'
+            : 'rounded-xl font-semibold text-ink-2 hover:text-ink'
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(o.value)}
+            className={`h-11 flex-1 px-3 text-sm whitespace-nowrap transition md:h-10 ${look}`}
+          >
+            {o.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

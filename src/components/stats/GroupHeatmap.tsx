@@ -18,7 +18,7 @@ function Cell({ value, strong }: { value: number | null; strong?: boolean }) {
         className={`tabular flex h-10 min-w-[44px] items-center justify-center rounded-lg text-[13px] lg:min-w-[38px] ${
           value === null ? 'text-ink-3/60' : strong ? 'font-extrabold text-ink' : value >= 0.7 ? 'font-bold text-ink' : 'font-semibold text-ink-2'
         }`}
-        style={{ background: value === null ? 'var(--color-bg)' : heat(value) }}
+        style={{ background: value === null ? 'var(--color-muted)' : heat(value) }}
       >
         {value === null ? '–' : `${Math.round(value * 100)}`}
         {value !== null && <span className="text-[10px] font-semibold opacity-60">%</span>}
@@ -117,7 +117,7 @@ export function GroupHeatmap({ groups, stats }: { groups: Group[]; stats: MonthS
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-end gap-2 border-t border-line bg-[#fbfbf9] px-4 py-2.5 text-[13px] text-ink-3">
+      <div className="flex items-center justify-end gap-2 border-t border-line bg-hover px-4 py-2.5 text-[13px] text-ink-3">
         <span>낮음</span>
         <span className="flex overflow-hidden rounded-full">
           {[0.1, 0.3, 0.5, 0.7, 0.9].map((v) => (
@@ -137,7 +137,7 @@ function YearCell({ value, strong }: { value: number | null; strong?: boolean })
   return (
     <div
       className={`tabular flex h-10 min-w-[56px] items-center justify-center rounded-lg text-[14px] ${
-        value === null ? 'bg-bg text-ink-3' : strong ? 'bg-ink font-extrabold text-white' : 'bg-ink/[0.06] font-extrabold text-ink'
+        value === null ? 'bg-muted text-ink-3' : strong ? 'bg-brand font-bold text-white' : 'bg-brand-soft font-bold text-brand-ink'
       }`}
     >
       {value === null ? '–' : `${Math.round(value * 100)}%`}

@@ -45,7 +45,7 @@ export function GroupsSection({
                 setQ('')
               }}
               className={`h-11 shrink-0 rounded-full px-3.5 text-sm font-semibold transition md:h-9 ${
-                reorder ? 'bg-ink text-white' : 'text-ink-2 hover:bg-black/5 active:bg-black/10'
+                reorder ? 'bg-brand text-white shadow-[0_2px_6px_rgb(10_114_180/0.28)]' : 'text-brand-ink hover:bg-brand-soft active:bg-brand-soft'
               }`}
             >
               {reorder ? '완료' : '순서 바꾸기'}
@@ -85,7 +85,7 @@ export function GroupsSection({
                 key={g.id}
                 type="button"
                 onClick={() => onOpen(g.id)}
-                className="flex min-h-[68px] w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-black/[0.02] active:bg-black/5"
+                className="flex min-h-[68px] w-full items-center gap-3.5 px-4 py-3 text-left transition hover:bg-hover active:bg-muted"
               >
                 <Initial text={g.name} />
                 <span className="min-w-0 flex-1">
@@ -120,7 +120,7 @@ function OrderButton({ icon, label, disabled, onClick }: { icon: IconName; label
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-line bg-surface text-ink-2 transition active:bg-present-soft disabled:opacity-30"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-line bg-surface text-brand transition hover:bg-brand-soft active:bg-brand-soft disabled:text-ink-3 disabled:opacity-30 disabled:hover:bg-surface"
     >
       <Icon name={icon} size={18} />
     </button>
@@ -155,14 +155,14 @@ function MemberSearch({ q, setQ, onPick }: { q: string; setQ: (v: string) => voi
           placeholder="이름으로 찾기"
           aria-label="목장원 이름으로 찾기"
           enterKeyHint="search"
-          className="h-12 w-full rounded-2xl border border-line bg-surface pr-12 pl-11 outline-none transition placeholder:text-ink-3 focus:border-ink"
+          className="h-12 w-full rounded-2xl border border-line bg-surface pr-12 pl-11 outline-none transition placeholder:text-ink-3 focus:border-brand"
         />
         {q && (
           <button
             type="button"
             aria-label="검색어 지우기"
             onClick={() => setQ('')}
-            className="absolute top-1/2 right-1.5 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-ink-3 hover:bg-black/5"
+            className="absolute top-1/2 right-0.5 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-ink-3 hover:bg-muted"
           >
             <Icon name="x" size={16} />
           </button>
@@ -177,7 +177,7 @@ function MemberSearch({ q, setQ, onPick }: { q: string; setQ: (v: string) => voi
                 key={m.id}
                 type="button"
                 onClick={() => onPick(m.id)}
-                className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-black/[0.02] active:bg-black/5"
+                className="flex min-h-[56px] w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-hover active:bg-muted"
               >
                 <span className="flex min-w-0 flex-1 items-center gap-1.5">
                   <span className="truncate text-[16px] font-semibold">{m.name}</span>

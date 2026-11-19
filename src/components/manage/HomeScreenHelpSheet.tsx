@@ -9,7 +9,7 @@ function Steps({ title, steps }: { title: string; steps: string[] }) {
       <ol className="space-y-2.5">
         {steps.map((s, i) => (
           <li key={i} className="flex gap-3 text-[15px] leading-relaxed text-ink-2">
-            <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-present text-[13px] font-bold text-ink">
+            <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-[13px] font-bold text-white">
               {i + 1}
             </span>
             <span className="min-w-0">{s}</span>

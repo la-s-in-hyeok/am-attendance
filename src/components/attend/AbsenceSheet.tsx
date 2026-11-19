@@ -113,7 +113,7 @@ export function AbsenceSheet({ memberId, date, onClose }: Props) {
                 type="button"
                 onClick={() => pick(o.status)}
                 className={`flex h-16 w-full items-center gap-3 rounded-2xl border-2 px-4 text-left transition active:scale-[0.99] ${
-                  active ? `${st.soft} ${o.border}` : 'border-transparent bg-bg hover:bg-[#f0f0ec]'
+                  active ? `${st.soft} ${o.border}` : 'border-transparent bg-muted hover:bg-track'
                 }`}
               >
                 <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${active ? 'bg-surface' : st.soft}`}>
@@ -183,7 +183,7 @@ export function AbsenceSheet({ memberId, date, onClose }: Props) {
                 onChange={(e) => setMemo(e.target.value)}
                 placeholder="예: 안산, 군대, 해외"
                 enterKeyHint="done"
-                className="h-12 w-full rounded-2xl border border-line bg-[#fafaf8] px-4 outline-none transition placeholder:text-ink-3 focus:border-ink focus:bg-surface"
+                className="h-12 w-full rounded-2xl border border-line bg-hover px-4 outline-none transition placeholder:text-ink-3 focus:border-brand focus:bg-surface"
               />
             </label>
             <p className="mt-1.5 text-[13px] text-ink-3">메모를 적고 위에서 타지나 연락두절을 누르면 함께 저장돼요.</p>
@@ -192,7 +192,7 @@ export function AbsenceSheet({ memberId, date, onClose }: Props) {
           <button
             type="button"
             onClick={() => setMemoOpen(true)}
-            className="mt-3 inline-flex h-11 items-center gap-1.5 rounded-xl px-1 text-sm font-semibold text-ink-3 hover:text-ink-2"
+            className="mt-3 inline-flex h-11 items-center gap-1.5 rounded-xl px-1 text-sm font-semibold text-brand-ink hover:text-brand-deep"
           >
             <Icon name="plus" size={16} />
             메모 함께 적기 (선택)

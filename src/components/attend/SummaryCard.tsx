@@ -1,118 +1,128 @@
+import type { ReactNode } from 'react'
 import type { WeekTotals } from '../../lib/compute'
 import { pct, rate } from '../../lib/compute'
-import type { ISODate, Status } from '../../lib/types'
-import { STATUS_LABEL } from '../../lib/types'
-import { labelMD } from '../../lib/dates'
-import { Card, Icon, STATUS_STYLE, StackBar } from '../ui'
+import { Card, Icon, Ring } from '../ui'
+import type { NoteSection } from './WeekNoteEditor'
 
-type LegendKey = 'service1' | 'service2' | Exclude<Status, 'present'> | 'unchecked'
-
-const LEGEND: { key: LegendKey; label: string; dot: string }[] = [
-  { key: 'service1', label: '1부', dot: 'bg-present' },
-  { key: 'service2', label: '2부', dot: 'bg-present2' },
-  { key: 'away', label: STATUS_LABEL.away, dot: STATUS_STYLE.away.dot },
-  { key: 'nocontact', label: STATUS_LABEL.nocontact, dot: STATUS_STYLE.nocontact.dot },
-  { key: 'other', label: STATUS_LABEL.other, dot: STATUS_STYLE.other.dot },
-  { key: 'unchecked', label: '미확인', dot: STATUS_STYLE.unchecked.dot },
-]
-
-/** 그 주일 전체 요약: 총 출석(목장원 + 새신자 + 방문), 출석률, 미확인 */
-export function SummaryCard({ totals, date }: { totals: WeekTotals; date: ISODate }) {
+/**
+ * 그 주일 전체 요약: 총 출석(목장원 + 새신자 + 방문), 목장원 출석률, 1부·2부·미확인.
+ * 아래 새신자·방문 칸을 누르면 적는 창이 그 자리로 열린다
+ */
+export function SummaryCard({ totals, onOpenNotes }: { totals: WeekTotals; onOpenNotes: (section: NoteSection) => void }) {
   const r = rate(totals.present, totals.total)
   const allChecked = totals.total > 0 && totals.unchecked === 0
 
   return (
-    <Card className="p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-ink-3">{labelMD(date)} 총 출석</p>
-          <p className="mt-1.5 flex items-baseline gap-1">
-            <span className="tabular bg-[linear-gradient(transparent_62%,var(--color-present)_62%)] px-0.5 text-[46px] leading-none font-extrabold tracking-tight">
-              {totals.grandTotal}
+    <>
+      <Card className="flex flex-col gap-3 px-[18px] py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-ink-2">총 출석</p>
+            <p className="mt-0.5 flex items-baseline gap-0.5 text-brand">
+              <span className="tabular text-[44px] leading-none font-bold tracking-[-0.02em]">{totals.grandTotal}</span>
+              <span className="text-[20px] leading-none font-bold">명</span>
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2.5">
+            <span className="text-right text-[12px] leading-snug font-semibold text-ink-2">
+              목장원
+              <br />
+              출석률
             </span>
-            <span className="text-lg font-bold">명</span>
-          </p>
+            <Ring value={r ?? 0} size={64} stroke={7}>
+              <span className="tabular text-[15px] font-bold text-ink">{pct(r)}</span>
+            </Ring>
+          </div>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="text-[13px] font-medium text-ink-3">목장원 출석률</p>
-          <p className="tabular mt-1 text-[26px] leading-none font-extrabold">{pct(r)}</p>
-        </div>
-      </div>
 
-      <div className="mt-5 grid grid-cols-[1.4fr_1fr_1fr] gap-2">
-        <Stat
-          label="목장원 출석"
-          value={totals.present}
-          suffix={`/${totals.total}`}
-          hint={[
-            { label: `1부 ${totals.service1}`, dot: 'bg-present' },
-            { label: `2부 ${totals.service2}`, dot: 'bg-present2' },
-          ]}
-        />
-        <Stat label="새신자" value={totals.newcomers} />
-        <Stat label="방문" value={totals.visitors} />
-      </div>
-
-      <StackBar
-        className="mt-5"
-        present={totals.present}
-        service2={totals.service2}
-        away={totals.away}
-        nocontact={totals.nocontact}
-        other={totals.other}
-        total={totals.total}
-      />
-      <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[13px] text-ink-2">
-        {LEGEND.map((l) => (
-          <span key={l.key} className="inline-flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${l.dot}`} />
-            {l.label}
-            <span className="tabular font-semibold text-ink">{totals[l.key]}</span>
-          </span>
-        ))}
-      </div>
-
-      {totals.total > 0 && (
-        <div
-          className={`mt-4 flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-semibold ${
-            allChecked ? 'bg-ok/10 text-ok' : `${STATUS_STYLE.unchecked.soft} text-ink-2`
-          }`}
-        >
+        {/* [1부 12] [2부 5] ……… [미확인 3] */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Pill className="bg-present text-present-ink">
+            1부 <b className="font-bold">{totals.service1}</b>
+          </Pill>
+          <Pill className="bg-present2 text-present2-ink">
+            2부 <b className="font-bold">{totals.service2}</b>
+          </Pill>
           {allChecked ? (
-            <>
-              <Icon name="check" size={16} strokeWidth={2.6} />
-              모든 목장 확인 완료
-            </>
+            <Pill className="ml-auto bg-ok-soft text-ok">
+              <Icon name="check" size={14} strokeWidth={2.8} />
+              모두 확인
+            </Pill>
           ) : (
-            <>
-              <span className="h-1.5 w-1.5 rounded-full bg-ink-3" />
-              아직 확인 안 한 사람이 <span className="tabular font-extrabold text-ink">{totals.unchecked}명</span> 있어요
-            </>
+            totals.total > 0 && (
+              <Pill className="ml-auto bg-muted text-ink-2">
+                미확인 <b className="font-bold">{totals.unchecked}</b>
+              </Pill>
+            )
           )}
         </div>
-      )}
-    </Card>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        <NoteTile section="newcomers" label="새신자" count={totals.newcomers} onOpen={onOpenNotes} />
+        <NoteTile section="visitors" label="방문" count={totals.visitors} onOpen={onOpenNotes} />
+      </div>
+    </>
   )
 }
 
-function Stat({ label, value, suffix, hint }: { label: string; value: number; suffix?: string; hint?: { label: string; dot: string }[] }) {
+function Pill({ className, children }: { className: string; children: ReactNode }) {
   return (
-    <div className="min-w-0 rounded-2xl bg-bg px-3 py-2.5">
-      <p className="text-[13px] font-medium text-ink-3">{label}</p>
-      <p className="tabular mt-0.5 text-[19px] font-extrabold">
-        {value}
-        {suffix && <span className="text-sm font-semibold text-ink-3">{suffix}</span>}
-      </p>
-      {hint && (
-        <p className="tabular mt-0.5 flex flex-wrap gap-x-2 text-[13px] leading-snug font-medium text-ink-3">
-          {hint.map((h) => (
-            <span key={h.dot} className="inline-flex items-center gap-1 whitespace-nowrap">
-              <span className={`h-1.5 w-1.5 rounded-full ${h.dot}`} />
-              {h.label}
-            </span>
-          ))}
-        </p>
+    <span className={`tabular inline-flex h-[30px] items-center gap-1 rounded-full px-3 text-[13px] font-semibold whitespace-nowrap ${className}`}>
+      {children}
+    </span>
+  )
+}
+
+/** 사람 모양 (새신자는 + 가 붙는다) */
+function PersonIcon({ plus }: { plus?: boolean }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {plus ? (
+        <path d="M10 11.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM3.5 20a6.5 6.5 0 0113 0M19 8v6M16 11h6" />
+      ) : (
+        <path d="M12 11.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM5 20a7 7 0 0114 0" />
       )}
-    </div>
+    </svg>
+  )
+}
+
+const TILE = {
+  newcomers: { chip: 'bg-accent-soft text-accent-soft-ink', plus: true },
+  visitors: { chip: 'bg-brand-soft text-brand', plus: false },
+} as const
+
+/** [아이콘 새신자 2명 +] — 누르면 새신자·방문 창이 그 칸 자리로 열린다 */
+function NoteTile({
+  section,
+  label,
+  count,
+  onOpen,
+}: {
+  section: NoteSection
+  label: string
+  count: number
+  onOpen: (section: NoteSection) => void
+}) {
+  const t = TILE[section]
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(section)}
+      aria-haspopup="dialog"
+      className="flex h-[60px] min-w-0 items-center gap-2.5 rounded-2xl bg-surface pr-2.5 pl-3 text-left shadow-[var(--shadow-card)] transition hover:bg-hover active:scale-[0.98]"
+    >
+      {/* 아주 좁은 화면에서는 숫자가 잘리지 않게 아이콘을 뺀다 */}
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl max-[359px]:hidden ${t.chip}`}>
+        <PersonIcon plus={t.plus} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+        <span className="truncate text-[12px] font-semibold text-ink-2">{label}</span>
+        <span className="tabular shrink-0 text-[17px] font-bold whitespace-nowrap text-ink">{count}명</span>
+      </span>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-white">
+        <Icon name="plus" size={16} strokeWidth={2.6} />
+      </span>
+    </button>
   )
 }

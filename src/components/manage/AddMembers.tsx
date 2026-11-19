@@ -126,13 +126,13 @@ export function AddMembers({ group }: { group: Group }) {
               aria-label="추가할 이름"
               onChange={(e) => setName(e.target.value)}
               onKeyDown={onEnter(() => void addOne())}
-              className="h-12 min-w-0 flex-1 rounded-2xl border border-line bg-[#fafaf8] px-4 outline-none transition placeholder:text-ink-3 focus:border-ink focus:bg-surface"
+              className="h-12 min-w-0 flex-1 rounded-2xl border border-line bg-hover px-4 outline-none transition placeholder:text-ink-3 focus:border-brand focus:bg-surface"
             />
             <button
               type="button"
               disabled={!one || busy}
               onClick={() => void addOne()}
-              className="inline-flex h-12 shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-present px-5 text-[15px] font-semibold text-ink transition hover:brightness-[0.97] active:brightness-95 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-12 shrink-0 items-center justify-center gap-1.5 rounded-2xl bg-brand px-5 text-[15px] font-semibold text-white shadow-[0_4px_12px_rgb(10_114_180/0.25)] transition hover:bg-brand-deep active:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink-3 disabled:opacity-60 disabled:shadow-none"
             >
               <Icon name="plus" size={18} />
               추가
@@ -183,7 +183,7 @@ export function AddMembers({ group }: { group: Group }) {
                     <span
                       key={`${a.name}-${i}`}
                       className={`inline-flex h-9 items-center gap-0.5 rounded-full pr-1 pl-3 text-[14px] font-semibold ${
-                        warn ? 'bg-danger/10 text-danger' : 'bg-present-soft text-present-ink'
+                        warn ? 'bg-danger-soft text-danger ring-1 ring-danger-line' : 'bg-brand-soft text-brand-ink'
                       }`}
                     >
                       {a.name}
@@ -230,7 +230,7 @@ export function AddMembers({ group }: { group: Group }) {
         <span>
           <b className="text-ink-2">{labelDay(joinedOn)} 출석부</b>부터 명단에 나와요
         </span>
-        <span className="ml-1 font-semibold text-ink-2 underline underline-offset-2">날짜 바꾸기</span>
+        <span className="ml-1 font-semibold text-brand-ink underline underline-offset-2">날짜 바꾸기</span>
         <input
           type="date"
           aria-label="명단에 넣을 주일 고르기"

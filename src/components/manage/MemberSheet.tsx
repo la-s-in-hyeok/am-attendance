@@ -170,7 +170,7 @@ export function MemberSheet({ memberId, onClose }: { memberId: string; onClose: 
               ]}
             />
             {replaced && newRole && (
-              <p className="mt-2 px-1 text-[13px] leading-relaxed text-present-ink">
+              <p className="mt-2 px-1 text-[13px] leading-relaxed text-accent-soft-ink">
                 지금 {ROLE_LABEL[newRole]}인 <b>{replaced.name}</b>님은 일반 목장원이 돼요. (목장마다 {ROLE_LABEL[newRole]}는 한 명)
               </p>
             )}
@@ -192,7 +192,7 @@ export function MemberSheet({ memberId, onClose }: { memberId: string; onClose: 
           </div>
 
           <p className="mt-6 mb-2 px-1 text-[13px] font-bold text-danger">위험 구역</p>
-          <div className="overflow-hidden rounded-2xl border border-danger/25">
+          <div className="overflow-hidden rounded-2xl border border-danger-line">
             <MenuRow icon="trash" danger title="완전히 삭제" sub="이름을 잘못 넣었을 때만 써 주세요" onClick={() => setView('purge')} />
           </div>
         </div>
@@ -288,7 +288,7 @@ export function MemberSheet({ memberId, onClose }: { memberId: string; onClose: 
           <button
             type="button"
             onClick={() => setView('remove')}
-            className="mt-3 h-11 w-full rounded-2xl text-sm font-semibold text-ink-2 hover:bg-black/5"
+            className="mt-3 h-11 w-full rounded-2xl text-sm font-semibold text-ink-2 hover:bg-muted"
           >
             명단에서 빼기로 할게요
           </button>

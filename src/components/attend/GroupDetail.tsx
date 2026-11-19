@@ -5,7 +5,7 @@ import type { GroupDay, ISODate } from '../../lib/types'
 import { SERVICE_LABEL } from '../../lib/types'
 import { groupDayKey, useStore } from '../../store'
 import { useWeek } from '../../hooks'
-import { Button, Confirm, Empty, Icon, StackBar, SyncBadge } from '../ui'
+import { Button, Confirm, Empty, Icon, SERVICE_STYLE, StackBar, SyncBadge } from '../ui'
 import { MemberRow } from './MemberRow'
 import { useAbsenceSheet } from './AbsenceSheet'
 import { AddMemberInline } from './AddMemberInline'
@@ -51,17 +51,17 @@ export function GroupDetail({ groupId }: { groupId: string }) {
     <div className="anim-fade">
       {/* 위쪽 고정 막대 */}
       {/* 좌우 여백은 App 의 main 여백(가로 모드 노치 포함)과 맞춘다 */}
-      <div className="sticky top-0 z-30 -mt-3 mr-[calc(-1*max(1rem,env(safe-area-inset-right)))] ml-[calc(-1*max(1rem,env(safe-area-inset-left)))] bg-bg/90 pt-[max(env(safe-area-inset-top),0.75rem)] pr-[max(1rem,env(safe-area-inset-right))] pb-3 pl-[max(1rem,env(safe-area-inset-left))] backdrop-blur-xl md:-mx-8 md:-mt-8 md:px-8 md:pt-6">
-        <div className="flex items-center gap-1">
+      <div className="sticky top-0 z-30 -mt-3 mr-[calc(-1*max(1rem,env(safe-area-inset-right)))] ml-[calc(-1*max(1rem,env(safe-area-inset-left)))] border-b border-line/70 bg-bg/90 pt-[max(env(safe-area-inset-top),0.75rem)] pr-[max(1rem,env(safe-area-inset-right))] pb-3 pl-[max(1rem,env(safe-area-inset-left))] backdrop-blur-xl md:-mx-8 md:-mt-8 md:px-8 md:pt-6">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={back}
             aria-label="목장 목록으로"
-            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink transition hover:bg-black/5 active:bg-black/10"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface text-brand shadow-[var(--shadow-card)] ring-1 ring-line transition hover:bg-brand-soft active:bg-brand-soft"
           >
-            <Icon name="chevronLeft" size={26} strokeWidth={2.2} />
+            <Icon name="chevronLeft" size={24} strokeWidth={2.4} />
           </button>
-          <h1 className="line-clamp-2 min-w-0 flex-1 text-[21px] leading-tight font-extrabold tracking-tight [overflow-wrap:anywhere] md:text-[23px]">
+          <h1 className="line-clamp-2 min-w-0 flex-1 text-[21px] leading-tight font-bold tracking-tight [overflow-wrap:anywhere] md:text-[23px]">
             {name}
           </h1>
           <CompactWeekSwitcher />
@@ -69,16 +69,18 @@ export function GroupDetail({ groupId }: { groupId: string }) {
         {c && (
           <>
             {/* 1부/2부 고르기는 목록을 내려도 늘 보이도록 고정 막대에 둔다 */}
-            <div className="mt-1.5 flex min-h-11 items-center justify-between gap-2 text-[14px]">
-              <p className="tabular min-w-0 truncate font-semibold">
-                출석 <span className="font-extrabold">{c.present}</span>
+            <div className="mt-2 flex min-h-11 items-center justify-between gap-2 text-[14px]">
+              <p className="tabular min-w-0 truncate font-semibold text-ink-2">
+                출석 <span className="text-[16px] font-bold text-brand">{c.present}</span>
                 <span className="text-ink-3"> / 총원 {c.total}</span>
                 <span className="text-ink-3"> · 미확인 </span>
-                <span className={c.unchecked > 0 ? 'font-extrabold' : 'text-ink-3'}>{c.unchecked}</span>
+                <span className={c.unchecked > 0 ? 'font-bold text-ink' : 'text-ink-3'}>{c.unchecked}</span>
               </p>
               {locked ? (
-                <span className="inline-flex shrink-0 items-center gap-1 text-[13px] font-bold text-ok">
-                  <Icon name="check" size={14} strokeWidth={2.8} />
+                <span className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-ok-line bg-ok-soft pr-3 pl-1.5 text-[13px] font-bold text-ok">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-ok-icon text-white">
+                    <Icon name="check" size={14} strokeWidth={3} />
+                  </span>
                   완료
                 </span>
               ) : (
@@ -125,16 +127,20 @@ export function GroupDetail({ groupId }: { groupId: string }) {
           ) : (
             <div className="mt-3 mb-3 flex items-center justify-between gap-3 px-0.5">
               <p className="min-w-0 text-[13px] leading-snug text-ink-3">
-                이름을 누르면 <span className="font-bold text-ink-2">{SERVICE_LABEL[service]}</span> 출석, 한 번 더 누르면 취소돼요
+                이름을 누르면{' '}
+                <span className={`rounded-md px-1.5 py-px font-bold ${SERVICE_STYLE[service].soft} ${SERVICE_STYLE[service].ink}`}>
+                  {SERVICE_LABEL[service]}
+                </span>{' '}
+                출석, 한 번 더 누르면 취소돼요
               </p>
               {day?.state === 'editing' ? (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-present-soft px-2 py-0.5 text-[13px] font-bold text-present-ink">
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2.5 py-0.5 text-[13px] font-bold text-accent-soft-ink">
                   <Icon name="edit" size={12} strokeWidth={2.4} />
                   수정 중
                 </span>
               ) : gw.summary.total > 0 && gw.summary.unchecked === 0 ? (
                 <span className="inline-flex shrink-0 items-center gap-1 text-[13px] font-bold text-ok">
-                  <Icon name="check" size={14} strokeWidth={2.8} />
+                  <Icon name="check" size={14} strokeWidth={2.8} className="text-ok-icon" />
                   모두 확인했어요
                 </span>
               ) : (
@@ -231,16 +237,21 @@ function CompleteBar({ groupId, date, day, unchecked }: { groupId: string; date:
   return (
     <>
       <div className="kb-hide sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-5 md:bottom-6 md:mx-auto md:max-w-md">
-        <div className="rounded-[24px] bg-surface/95 p-2 shadow-[var(--shadow-pop)] ring-1 ring-black/5 backdrop-blur-xl">
+        {/* 완료 = 초록 막대(체크·글자 함께), 완료 전·수정 중 = 파란 큰 버튼 */}
+        <div
+          className={`rounded-[24px] p-2 shadow-[var(--shadow-pop)] ring-1 backdrop-blur-xl ${
+            state === 'done' ? 'bg-ok-soft/95 ring-ok-line' : 'bg-surface/95 ring-line'
+          }`}
+        >
           {state === 'done' ? (
             <div className="flex items-center gap-3 pl-2">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ok text-white">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ok-icon text-white">
                 <Icon name="check" size={19} strokeWidth={3} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[16px] leading-tight font-extrabold">완료</p>
+                <p className="text-[16px] leading-tight font-bold text-ok">완료</p>
                 {(when || (day && day.editCount > 0)) && (
-                  <p className="tabular mt-0.5 flex flex-wrap gap-x-1 text-[13px] leading-snug font-medium text-ink-3">
+                  <p className="tabular mt-0.5 flex flex-wrap gap-x-1 text-[13px] leading-snug font-medium text-ink-2">
                     {[when, day && day.editCount > 0 ? `수정 ${day.editCount}번` : ''].filter(Boolean).map((t, i) => (
                       <span key={t} className="whitespace-nowrap">
                         {i > 0 && '· '}
@@ -255,7 +266,7 @@ function CompleteBar({ groupId, date, day, unchecked }: { groupId: string; date:
               </Button>
             </div>
           ) : (
-            <Button variant="yellow" size="lg" icon="check" className="w-full text-[18px] font-extrabold" disabled={busy} onClick={() => (unchecked > 0 ? setAsk(true) : complete())}>
+            <Button variant="primary" size="lg" icon="check" className="w-full text-[18px] font-bold" disabled={busy} onClick={() => (unchecked > 0 ? setAsk(true) : complete())}>
               {label}
             </Button>
           )}
@@ -287,7 +298,7 @@ function Notice({
   return (
     <div
       className={`mt-3 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold ${
-        tone === 'past' ? 'bg-present-soft text-present-ink' : 'bg-away-soft text-away-ink'
+        tone === 'past' ? 'bg-accent-soft text-accent-soft-ink' : 'bg-brand-soft text-brand-ink'
       }`}
     >
       <Icon name={tone === 'past' ? 'edit' : 'calendar'} size={16} className="shrink-0" />
@@ -295,7 +306,7 @@ function Notice({
       <button
         type="button"
         onClick={onAction}
-        className="relative h-9 shrink-0 rounded-full bg-white/70 px-3.5 text-[13px] font-bold before:absolute before:inset-x-0 before:-inset-y-1 before:content-['']"
+        className="relative h-9 shrink-0 rounded-full bg-surface px-3.5 text-[13px] font-bold text-brand shadow-[0_1px_3px_rgb(16_42_67/0.1)] before:absolute before:inset-x-0 before:-inset-y-1 before:content-['']"
       >
         {action}
       </button>

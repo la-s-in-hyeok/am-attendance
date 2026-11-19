@@ -1,13 +1,25 @@
 import type { ReactNode } from 'react'
-import { IconButton } from '../ui'
+import { IconButton, useOnBand } from '../ui'
 
-/** 통계 화면의 한 덩어리 (제목 + 내용) */
-export function Section({ title, sub, right, children }: { title: ReactNode; sub?: ReactNode; right?: ReactNode; children: ReactNode }) {
+/** 통계 화면의 한 덩어리 (제목 + 내용). 칸 맨 위에 올 때는 className="" 로 위 여백을 뺀다 */
+export function Section({
+  title,
+  sub,
+  right,
+  className = 'mt-5',
+  children,
+}: {
+  title: ReactNode
+  sub?: ReactNode
+  right?: ReactNode
+  className?: string
+  children: ReactNode
+}) {
   return (
-    <section className="mt-9">
+    <section className={className}>
       <div className="mb-3 flex items-end justify-between gap-3 px-1">
         <div className="min-w-0">
-          <h2 className="text-[19px] leading-tight font-bold tracking-tight">{title}</h2>
+          <h2 className="text-[17px] leading-tight font-bold tracking-tight">{title}</h2>
           {sub && <p className="mt-1 text-sm text-ink-3">{sub}</p>}
         </div>
         {right && <div className="shrink-0">{right}</div>}
@@ -24,7 +36,7 @@ export function Section({ title, sub, right, children }: { title: ReactNode; sub
 export const GRID_LIST =
   '-mb-px grid lg:grid-cols-2 [&>*]:border-b [&>*]:border-line lg:[&>*:nth-child(odd):not(:last-child)]:border-r'
 
-/** ‹ 2026년 › */
+/** ‹ 2026년 › — 파란 띠 안에서는 진한 파랑 알약에 흰 글씨 */
 export function YearSwitcher({
   year,
   years,
@@ -36,30 +48,23 @@ export function YearSwitcher({
   loading: boolean
   onChange: (y: number) => void
 }) {
+  const onBand = useOnBand()
   const min = years[years.length - 1] ?? year
   const max = years[0] ?? year
+  // 휴대폰은 누르기 쉽게 44px
+  const arrow = onBand
+    ? 'max-md:size-11 text-white hover:bg-white/10 active:bg-white/15 disabled:opacity-40 disabled:hover:bg-transparent'
+    : 'max-md:size-11 disabled:opacity-25 disabled:hover:bg-transparent'
   return (
-    <div className="flex items-center rounded-full bg-surface p-0.5 shadow-[var(--shadow-card)]">
-      <IconButton
-        icon="chevronLeft"
-        label="지난해"
-        size={18}
-        disabled={year <= min || loading}
-        className="max-md:size-11 disabled:opacity-25 disabled:hover:bg-transparent"
-        onClick={() => onChange(year - 1)}
-      />
-      <span className="tabular flex min-w-[68px] items-center justify-center gap-1.5 text-[15px] font-bold">
-        {loading && <span className="h-3 w-3 animate-spin rounded-full border-2 border-line border-t-ink" />}
+    <div className={`flex items-center rounded-full ${onBand ? 'bg-brand-deep text-white md:p-0.5' : 'bg-surface p-0.5 shadow-[var(--shadow-card)]'}`}>
+      <IconButton icon="chevronLeft" label="지난해" size={18} disabled={year <= min || loading} className={arrow} onClick={() => onChange(year - 1)} />
+      <span className={`tabular flex items-center justify-center gap-1.5 font-bold ${onBand ? 'min-w-[60px] text-[16px]' : 'min-w-[68px] text-[15px]'}`}>
+        {loading && (
+          <span className={`h-3 w-3 animate-spin rounded-full border-2 ${onBand ? 'border-white/40 border-t-white' : 'border-line border-t-ink'}`} />
+        )}
         {year}년
       </span>
-      <IconButton
-        icon="chevronRight"
-        label="다음 해"
-        size={18}
-        disabled={year >= max || loading}
-        className="max-md:size-11 disabled:opacity-25 disabled:hover:bg-transparent"
-        onClick={() => onChange(year + 1)}
-      />
+      <IconButton icon="chevronRight" label="다음 해" size={18} disabled={year >= max || loading} className={arrow} onClick={() => onChange(year + 1)} />
     </div>
   )
 }
@@ -72,7 +77,7 @@ export function RateBar({ value, value2 = 0, className = '' }: { value: number |
   const v = value === null ? 0 : Math.max(0, Math.min(1, value))
   const v2 = Math.max(0, Math.min(v, value2))
   return (
-    <div className={`h-1.5 w-full overflow-hidden rounded-full bg-[#efefea] ${className}`}>
+    <div className={`h-1.5 w-full overflow-hidden rounded-full bg-track ${className}`}>
       <div className="flex h-full overflow-hidden rounded-full transition-all" style={{ width: `${v * 100}%` }}>
         <div className="h-full min-w-0 flex-1 bg-present" />
         {v2 > 0 && <div className="h-full shrink-0 bg-present2" style={{ width: `${(v2 / v) * 100}%` }} />}

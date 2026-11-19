@@ -76,9 +76,9 @@ export function AddMemberInline({
           e.preventDefault()
           void submit()
         }}
-        className="flex h-14 items-center gap-2 rounded-2xl border-2 border-dashed border-line pr-2 pl-3.5 transition focus-within:border-ink-3 focus-within:bg-surface"
+        className="flex h-14 items-center gap-2 rounded-2xl border-2 border-dashed border-ink-3/30 pr-2 pl-3.5 transition focus-within:border-solid focus-within:border-brand focus-within:bg-surface"
       >
-        <Icon name="plus" size={20} className="shrink-0 text-ink-3" />
+        <Icon name="plus" size={20} className="shrink-0 text-brand" />
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}

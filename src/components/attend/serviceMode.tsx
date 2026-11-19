@@ -12,9 +12,10 @@ export const useServiceMode = create<{ service: Service; setService: (s: Service
 }))
 
 const DOT: Record<Service, string> = { 1: 'bg-present', 2: 'bg-present2' }
+/** 고른 쪽은 그 예배 색(1부 노랑·2부 민트)으로 꽉 채운다. 이름을 누르면 이 색으로 칠해지니까 */
 const ACTIVE: Record<Service, string> = {
-  1: 'bg-present text-ink shadow-sm',
-  2: 'bg-present2 text-ink shadow-sm',
+  1: 'bg-present text-ink shadow-[0_2px_6px_rgb(16_42_67/0.14)]',
+  2: 'bg-present2 text-ink shadow-[0_2px_6px_rgb(16_42_67/0.14)]',
 }
 
 /** [● 1부 예배 | ● 2부 예배] — 이름을 누르면 고른 예배 색으로 칠해진다 */
@@ -22,7 +23,7 @@ export function ServiceSwitch({ className = '', compact = false }: { className?:
   const service = useServiceMode((s) => s.service)
   const setService = useServiceMode((s) => s.setService)
   return (
-    <div role="radiogroup" aria-label="출석 체크할 예배" className={`inline-flex rounded-2xl bg-[#ececE7] p-1 ${className}`}>
+    <div role="radiogroup" aria-label="출석 체크할 예배" className={`inline-flex rounded-2xl bg-track p-1 ${className}`}>
       {([1, 2] as Service[]).map((v) => {
         const on = service === v
         return (
@@ -34,7 +35,7 @@ export function ServiceSwitch({ className = '', compact = false }: { className?:
             onClick={() => setService(v)}
             className={`relative inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl font-bold transition before:absolute before:inset-x-0 before:-inset-y-1 before:content-[''] ${
               compact ? 'h-9 px-3 text-[14px]' : 'h-10 px-3 text-sm'
-            } ${on ? ACTIVE[v] : 'text-ink-3 hover:text-ink-2'}`}
+            } ${on ? ACTIVE[v] : 'text-ink-2 hover:text-ink'}`}
           >
             {!on && <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${DOT[v]}`} />}
             {SERVICE_LABEL[v]}

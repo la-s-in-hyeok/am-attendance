@@ -185,7 +185,7 @@ export function AbsencePanel({
       </div>
 
       {/* 글 복사·공유 (휴대폰: 아래 탭 바로 위에 꽉 차게, PC: 오른쪽 아래에 알맞은 크기로) */}
-      <div className="pointer-events-none sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 mt-3 flex gap-2 md:bottom-6 md:justify-end">
+      <div className="kb-hide pointer-events-none sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 mt-3 flex gap-2 md:bottom-6 md:justify-end">
         <Button
           variant="yellow"
           size="lg"

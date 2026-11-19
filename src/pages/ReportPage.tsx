@@ -8,6 +8,8 @@ import { ALL, AbsencePanel } from '../components/report/AbsencePanel'
 import { SheetPanel } from '../components/report/SheetPanel'
 import { PrintView, type PrintJob, type PrintLayout } from '../components/report/PrintView'
 import { ServiceCounts } from '../components/report/ServiceBits'
+import { isAndroid } from '../lib/push'
+import { useStore } from '../store'
 
 type View = 'absence' | 'sheet'
 
@@ -30,7 +32,28 @@ export function ReportPage() {
   const absence = useMemo(() => buildAbsenceReport(date, week), [date, week])
   const memberRate = rate(totals.present, totals.total)
 
-  const print = useCallback((layout: PrintLayout) => setJob({ layout, auto: true }), [])
+  const toast = useStore((s) => s.toast)
+  const print = useCallback(
+    (layout: PrintLayout) => {
+      // 안드로이드 인쇄 창은 늘 세로로 열리고, 열리면 화면 전체를 덮어서 그 뒤에는 안내가 안 보여요.
+      // 그래서 먼저 안내하고, '인쇄'를 누르면 연다
+      if (isAndroid()) toast('인쇄 창 위쪽 ▼를 눌러 용지 방향을 ‘가로’로 바꿔 주세요', 'info', { label: '인쇄', run: () => setJob({ layout, auto: true }) })
+      else setJob({ layout, auto: true })
+    },
+    [toast],
+  )
+
+  // 엑셀·Word 만드는 도구를 미리 받아 둔다. 처음 누를 때 받느라 몇 초 걸리면
+  // 삼성 인터넷은 '누른 지 오래된 다운로드'로 보고 파일 저장을 조용히 막아요
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void import('../lib/exportXlsx').then((m) => m.loadExcel()).catch(() => undefined)
+      void import('../lib/exportDocx').catch(() => undefined)
+      void import('../lib/exportAbsenceXlsx').catch(() => undefined)
+      void import('../lib/exportAbsenceDocx').catch(() => undefined)
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [])
   const endPrint = useCallback(() => setJob(null), [])
 
   // 브라우저 메뉴(Ctrl+P)로 인쇄해도 보고 있는 탭의 표가 나오게
@@ -108,7 +131,7 @@ export function ReportPage() {
         )}
       </div>
 
-      <PrintView job={job} date={date} sheet={sheet} week={week} absence={absence} onDone={endPrint} />
+      <PrintView job={job} date={date} sheet={sheet} absence={absence} onDone={endPrint} />
     </div>
   )
 }

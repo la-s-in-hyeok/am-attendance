@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CompletionNotice } from '../../lib/types'
 import { currentSunday, labelMD } from '../../lib/dates'
-import { noticeText, pushConfigured, showSystemNotice, syncPush, currentPushEndpoint } from '../../lib/push'
+import { noticeText, parseNotice, pushConfigured, showSystemNotice, syncPush, currentPushEndpoint } from '../../lib/push'
 import { useStore } from '../../store'
 import { Icon } from '../ui'
-import { buzz, chime, unlockAudio } from './alertFx'
+import { buzz, canSound, chime, unlockAudio } from './alertFx'
 
 /** 화면 위 알림이 저절로 사라지는 시간 */
 const SHOW_MS = 8000
@@ -109,15 +109,36 @@ export function CompletionAlerts() {
       }
     }
     const off = backend.onNotice((n) => void handle(n))
+    // 앱을 보고 있을 때 Web Push 로 온 알림. 서비스 워커가 '소리 낼 수 있니?' 하고 물어 오면 바로 답하고,
+    // 화면 안 알림을 띄워요 (실시간 연결이 잠깐 끊겨 있었어도). 같은 알림은 위의 seen 으로 한 번만.
+    // 소리를 낼 수 있다고 답한 경우에만 휴대폰 알림이 조용히 떠요 (두 번 울리지 않게)
+    const sw = 'serviceWorker' in navigator ? navigator.serviceWorker : null
+    const onMessage = (e: MessageEvent) => {
+      const d: unknown = e.data
+      if (typeof d !== 'object' || d === null || (d as { type?: unknown }).type !== 'am-notice') return
+      const notice = parseNotice((d as { notice?: unknown }).notice)
+      e.ports[0]?.postMessage({ sound: notice !== null && canSound() })
+      if (notice) void handle(notice)
+    }
+    sw?.addEventListener('message', onMessage)
     return () => {
       alive = false
       off()
+      sw?.removeEventListener('message', onMessage)
     }
   }, [authed, backend, dismiss])
 
-  // 알림을 켠 기기는 앱을 열 때마다 Web Push 받는 목록에 올려 둬요 (설정돼 있을 때만)
+  // 알림을 켠 기기는 앱을 열 때, 앱으로 돌아올 때 Web Push 받는 목록에 올려 둬요 (설정돼 있을 때만, 하루 한 번쯤).
+  // 오래 안 쓴 기기는 서버가 60일 뒤 정리하므로, 쓰고 있는 기기는 늘 새로 남겨 둬요
   useEffect(() => {
-    if (authed) void syncPush(backend).catch(() => false)
+    if (!authed) return
+    const sync = () => void syncPush(backend).catch(() => false)
+    sync()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sync()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [authed, backend])
 
   // 휴대폰 알림을 눌러 앱이 열렸을 때 (서비스 워커가 알려 줘요)

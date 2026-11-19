@@ -51,6 +51,54 @@ export default function App() {
     }
   }, [authed, checkSundayRollover, refresh])
 
+  // 휴대폰 키보드가 올라와 있는 동안만 아래 막대를 숨긴다 (index.css 의 .kb-hide).
+  // 입력칸에 초점이 있는지만 보면, 안드로이드에서 뒤로 가기로 키보드만 닫았을 때(초점은 남음) 막대가 계속 숨어 있어서
+  // 보이는 화면 높이가 실제로 줄었는지도 함께 본다
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv || !window.matchMedia('(pointer: coarse)').matches) return
+    const root = document.documentElement
+    let base = vv.height
+    let timer = 0
+    const typing = () => {
+      const el = document.activeElement
+      return (
+        el instanceof HTMLElement &&
+        el.closest('main') !== null &&
+        el.matches('textarea, input:not([type=checkbox], [type=radio], [type=file], [type=range], [type=button], [type=submit], [type=date], [type=month])')
+      )
+    }
+    const update = () => {
+      const t = typing()
+      if (!t) base = Math.max(base, vv.height)
+      root.toggleAttribute('data-kb', t && vv.height < base - 120)
+    }
+    // 초점이 옮겨 가는 중에는 activeElement 가 잠깐 body 라서 한 박자 뒤에 본다
+    const later = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(update, 50)
+    }
+    const onRotate = () => {
+      base = 0
+      window.setTimeout(() => {
+        if (!typing()) base = vv.height
+        update()
+      }, 400)
+    }
+    vv.addEventListener('resize', update)
+    document.addEventListener('focusin', later)
+    document.addEventListener('focusout', later)
+    window.addEventListener('orientationchange', onRotate)
+    return () => {
+      window.clearTimeout(timer)
+      vv.removeEventListener('resize', update)
+      document.removeEventListener('focusin', later)
+      document.removeEventListener('focusout', later)
+      window.removeEventListener('orientationchange', onRotate)
+      root.removeAttribute('data-kb')
+    }
+  }, [])
+
   // 휴대폰 '뒤로 가기'로 목장 화면을 닫을 수 있게
   useEffect(() => {
     if (groupId) {
@@ -154,7 +202,7 @@ export default function App() {
         {/* 휴대폰: 아래 탭 */}
         <nav
           aria-label="메뉴"
-          className="no-print safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl md:hidden"
+          className="kb-hide no-print safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/90 backdrop-blur-xl md:hidden"
         >
           <div className="mx-auto flex max-w-lg">
             {TABS.map((t) => (

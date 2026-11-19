@@ -49,7 +49,10 @@ export const pushConfigured = VAPID !== ''
 
 export function isIOS(): boolean {
   if (typeof navigator === 'undefined') return false
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  const ua = navigator.userAgent
+  if (/Android/i.test(ua)) return false
+  // 아이패드는 PC(Mac)처럼 보이게 알려 줘서, 손가락 터치가 되는 Mac 으로 알아본다
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 }
 
 export function isStandalone(): boolean {
@@ -72,6 +75,15 @@ export function inAppBrowser(): 'kakao' | 'other' | null {
   // 아이폰의 텔레그램·X·슬랙 같은 앱 안 화면: Safari 표시(Safari/)가 없다 (홈 화면 앱은 제외)
   if (isIOS() && !isStandalone() && !/Safari\//.test(ua)) return 'other'
   return null
+}
+
+export function isAndroid(): boolean {
+  return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
+}
+
+/** 삼성 인터넷 (갤럭시의 기본 브라우저) */
+export function isSamsungBrowser(): boolean {
+  return typeof navigator !== 'undefined' && /SamsungBrowser\//i.test(navigator.userAgent)
 }
 
 /** 휴대폰·태블릿이 아닌 PC */
@@ -207,7 +219,8 @@ export async function showSystemNotice(notice: CompletionNotice, body: string): 
     body,
     tag: noticeTag(notice),
     icon: './icon-192.png',
-    badge: './icon-192.png',
+    // 안드로이드 위쪽 상태 표시줄의 작은 아이콘: 투명 배경 위 모양만 쓰여요
+    badge: './badge-96.png',
     data: { url: './', date: notice.date, groupId: notice.groupId },
     // 눌러서 확인할 때까지 화면에 남기고(주로 PC), 같은 알림이어도 다시 울리게.
     // 진동은 안드로이드 8 이상에서는 휴대폰의 알림 채널 설정을 따라요
@@ -245,6 +258,9 @@ function sameKey(sub: PushSubscription, key: Uint8Array): boolean {
 }
 
 let syncedEndpoint: string | null = null
+let syncedAt = 0
+/** 같은 기기라도 이만큼 지나면 서버에 다시 남겨요 (서버는 60일 넘게 소식 없는 기기를 정리해요) */
+const RESYNC_MS = 24 * 60 * 60 * 1000
 
 /**
  * 알림이 켜져 있으면 이 기기를 Web Push 받는 목록에 올려요 (앱을 열 때마다 한 번).
@@ -266,9 +282,10 @@ export async function syncPush(backend: Backend): Promise<boolean> {
   const p256dh = json.keys?.p256dh
   const auth = json.keys?.auth
   if (!json.endpoint || !p256dh || !auth) return false
-  if (syncedEndpoint !== json.endpoint) {
+  if (syncedEndpoint !== json.endpoint || Date.now() - syncedAt > RESYNC_MS) {
     await backend.savePushSubscription({ endpoint: json.endpoint, keys: { p256dh, auth } })
     syncedEndpoint = json.endpoint
+    syncedAt = Date.now()
   }
   return true
 }

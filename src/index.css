@@ -54,8 +54,13 @@ body,
 }
 
 html {
-  /* 휴대폰이 다크 모드여도 날짜 고르기·스크롤바 같은 기본 컨트롤을 밝게 */
-  color-scheme: light;
+  /*
+   * 휴대폰이 다크 모드여도 밝은 화면 그대로 (1부 노랑·2부 민트 색이 바뀌지 않게).
+   * only: 크롬·삼성 인터넷이 페이지 색을 억지로 어둡게 바꾸지 않게 해요
+   */
+  color-scheme: only light;
+  /* 맨 위에서 아래로 당기거나 창 손잡이를 끌 때 페이지 전체가 새로고침되지 않게 (크롬 140부터는 html 에 줘야 해요) */
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -90,6 +95,16 @@ select {
   :focus-visible {
     outline: 2px solid var(--color-ink);
     outline-offset: 2px;
+  }
+}
+
+/*
+ * 휴대폰 키보드가 올라와 있는 동안 아래 탭·완료 막대를 숨긴다 (App 이 html 에 data-kb 를 붙였다 뗀다).
+ * 안드로이드는 키보드가 올라오면 화면 높이가 줄어서, 아래에 붙은 막대가 키보드 위로 따라 올라와 입력칸을 가린다
+ */
+@media (pointer: coarse) {
+  html[data-kb] .kb-hide {
+    visibility: hidden;
   }
 }
 

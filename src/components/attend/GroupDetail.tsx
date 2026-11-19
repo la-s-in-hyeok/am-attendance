@@ -230,7 +230,7 @@ function CompleteBar({ groupId, date, day, unchecked }: { groupId: string; date:
 
   return (
     <>
-      <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-5 md:bottom-6 md:mx-auto md:max-w-md">
+      <div className="kb-hide sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 mt-5 md:bottom-6 md:mx-auto md:max-w-md">
         <div className="rounded-[24px] bg-surface/95 p-2 shadow-[var(--shadow-pop)] ring-1 ring-black/5 backdrop-blur-xl">
           {state === 'done' ? (
             <div className="flex items-center gap-3 pl-2">

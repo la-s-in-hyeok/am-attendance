@@ -12,6 +12,7 @@
 //    방금(10분 안에) 완료한 것만, 완료 한 번에 한 번만 보내요.
 //  · 없어진 휴대폰(404/410)은 받는 목록에서 지워요 (am_push_forget).
 //
+//  휴대폰에 보내는 값: { title, body, tag, date, groupId, kind, group, n }
 //  앱이 보내는 값: { date: 'YYYY-MM-DD', groupId: 목장 id, token: 알림 열쇠, endpoint: 누른 기기 주소 | null }
 //  돌려주는 값: 200 { ok, sent, removed, failed } | 400 값이 빠지거나 이상함 | 403 열쇠가 맞지 않음(보내지 않음)
 //
@@ -36,10 +37,11 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json; charset=utf-8' } })
 }
 
-/** '믿음' → '믿음목장', '믿음목장' → '믿음목장' (앱의 src/lib/push.ts 와 같은 규칙) */
+/** '믿음' → '믿음목장', '믿음목장' → '믿음목장', 'Living hope' → 'Living hope 목장' (앱의 src/lib/push.ts 와 같은 규칙) */
 function groupLabel(name: string): string {
   const n = name.trim()
-  return n.endsWith('목장') ? n : `${n}목장`
+  if (n.endsWith('목장')) return n
+  return /[A-Za-z0-9]$/.test(n) ? `${n} 목장` : `${n}목장`
 }
 
 function message(kind: string, group: string): string {
@@ -112,6 +114,10 @@ Deno.serve(async (req: Request) => {
     tag: `am-${r.date}-${r.groupId}-${r.n ?? 0}`,
     date: r.date,
     groupId: r.groupId,
+    // 앱을 보고 있는 휴대폰은 이 값으로 화면 안 알림을 띄워요 (sw.js)
+    kind: r.kind === 'edited' ? 'edited' : 'done',
+    group: r.group ?? '',
+    n: r.n ?? 0,
   })
 
   const targets = Array.isArray(r.targets) ? r.targets : []

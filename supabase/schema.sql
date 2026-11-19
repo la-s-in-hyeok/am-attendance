@@ -1142,7 +1142,9 @@ begin
 end;
 $$;
 
--- 이 기기에서 Web Push 받기 (같은 주소면 열쇠만 새로). 최대 300대, 넘으면 오래된 것부터 정리
+-- 이 기기에서 Web Push 받기 (같은 주소면 열쇠만 새로). 최대 300대, 넘으면 오래된 것부터 정리.
+-- 앱을 열 때마다 updated_at 이 새로 바뀌므로, 60일 넘게 한 번도 안 연 기기(안 쓰는 브라우저)는 정리해요
+-- (한 휴대폰의 크롬·삼성 인터넷에 둘 다 남아 알림이 두 번 오는 일을 줄여요. 다시 열면 바로 다시 등록돼요)
 create or replace function public.am_save_push_sub(p_code text, p_endpoint text, p_keys jsonb)
 returns jsonb
 language plpgsql
@@ -1171,6 +1173,8 @@ begin
   on conflict (endpoint) do update
     set keys       = excluded.keys,
         updated_at = excluded.updated_at;
+
+  delete from public.push_subs s where s.updated_at < now() - interval '60 days';
 
   delete from public.push_subs s
   where s.endpoint in (select x.endpoint from public.push_subs x order by x.updated_at desc offset 300);

@@ -33,6 +33,11 @@ function tone(c: AudioContext, freq: number, start: number, length: number, gain
   osc.stop(start + length + 0.02)
 }
 
+/** 지금 이 화면이 알림 소리를 낼 수 있는지 (한 번 눌러서 소리 장치가 깨어 있고, 화면이 보일 때) */
+export function canSound(): boolean {
+  return ctx?.state === 'running' && document.visibilityState === 'visible'
+}
+
 /** 완료 = 딩동, 수정 = 띠띠띠 */
 export function chime(kind: NoticeKind) {
   const c = ctx

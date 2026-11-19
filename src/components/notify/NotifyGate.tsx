@@ -3,8 +3,11 @@ import { useStore } from '../../store'
 import {
   enableNotifications,
   inAppBrowser,
+  isAndroid,
   isDesktop,
   isIOS,
+  isSamsungBrowser,
+  isStandalone,
   notifyStatus,
   openInChromeHref,
   pushConfigured,
@@ -109,7 +112,9 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
       setBusy(false)
     }, 10_000)
     try {
-      await enableNotifications(backend)
+      // 허용 창이 저절로 사라졌거나(크롬 155 이상 안드로이드) 휴대폰 창에서 거절해 '아직 안 정함'으로 끝나면 바로 안내
+      const r = await enableNotifications(backend)
+      if (r === 'default') setSlow(true)
     } finally {
       clearTimeout(t)
       setBusy(false)
@@ -129,6 +134,8 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
 
   const ios = isIOS()
   const desktop = isDesktop()
+  const android = isAndroid()
+  const samsung = isSamsungBrowser()
   const kakao = inAppBrowser() === 'kakao'
   const chromeHref = openInChromeHref(address)
 
@@ -141,11 +148,15 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
     action = (
       <div className="space-y-3">
         <Button variant="yellow" size="lg" className="w-full" disabled={busy} onClick={() => void turnOn()}>
-          {busy ? '켜는 중…' : '🔔 알림 켜기'}
+          {busy ? '켜는 중…' : slow ? '🔔 다시 알림 켜기' : '🔔 알림 켜기'}
         </Button>
         {slow && (
           <p className="text-[14px] leading-relaxed text-ink-2">
-            허용 창이 안 보이면 주소창 왼쪽의 종(🔔)이나 설정 아이콘을 눌러 알림을 ‘허용’으로 바꿔 주세요.
+            {android
+              ? `허용 창이 안 보였거나 금방 사라졌으면 버튼을 다시 누르고 ‘허용’을 눌러 주세요. ‘○○에서 알림을 보내도록 허용’ 하는 휴대폰 창이 뜨면 그것도 ‘허용’을 눌러 주세요. 아래쪽에 ‘알림 차단됨’ 메시지만 뜨면 그 메시지의 ‘관리’를 눌러 ‘허용’을 골라 주세요.`
+              : ios
+                ? '허용 창이 뜨면 ‘허용’을 눌러 주세요. 창이 안 뜨면 버튼을 다시 눌러 주세요.'
+                : '허용 창이 안 보이면 주소창 왼쪽의 종(🔔)이나 설정 아이콘을 눌러 알림을 ‘허용’으로 바꿔 주세요.'}
           </p>
         )}
       </div>
@@ -165,10 +176,32 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
             <Steps items={['주소창 왼쪽의 자물쇠(또는 설정) 아이콘 누르기', '알림 → ‘허용’으로 바꾸기', '이 화면으로 돌아오기']} />
             <p className="text-[14px] text-ink-3">시크릿(비공개) 창에서는 알림을 켤 수 없어요. 일반 창으로 열어 주세요.</p>
           </>
+        ) : samsung ? (
+          <>
+            <Steps
+              items={[
+                '휴대폰 설정 → 애플리케이션 → 삼성 인터넷 → 알림 → ‘알림 허용’ 켜기',
+                '삼성 인터넷 아래쪽 ≡ → 설정 → 사이트 및 다운로드 → 사이트 알림에서 이 주소를 ‘허용’으로',
+                '이 화면으로 돌아오기',
+              ]}
+            />
+            <AndroidNote standalone={isStandalone()} />
+          </>
+        ) : android && isStandalone() ? (
+          <>
+            <Steps items={['홈 화면의 AM 출석부 아이콘을 길게 누르기', '앱 정보(ⓘ) → 알림 → ‘알림 허용’ 켜기', '이 화면으로 돌아오기']} />
+            <AndroidNote standalone />
+          </>
         ) : (
           <>
-            <Steps items={['홈 화면의 AM 출석부 아이콘을 길게 누르기', '앱 정보(ⓘ) → 알림', '알림 허용 켜기']} />
-            <p className="text-[14px] text-ink-3">크롬에서 열었다면: 주소창 왼쪽 아이콘 → 권한 → 알림 → 허용</p>
+            <Steps
+              items={[
+                '휴대폰 설정 → 애플리케이션 → Chrome(쓰는 브라우저) → 알림 → ‘알림 허용’ 켜기',
+                '크롬 주소창 왼쪽 아이콘 → 권한(또는 사이트 설정) → 알림 → ‘허용’',
+                '이 화면으로 돌아오기',
+              ]}
+            />
+            <AndroidNote standalone={false} />
           </>
         )}
       </>
@@ -182,14 +215,14 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
     title = kakao ? '카카오톡 안에서 열렸어요' : '앱 안에서 열린 화면이에요'
     body = (
       <>
-        <p>여기서는 알림을 받을 수 없어요. {ios ? 'Safari' : '크롬'}로 다시 열어 주세요.</p>
-        {!chromeHref && (
+        <p>여기서는 알림을 받을 수 없어요. {ios ? 'Safari로' : '크롬이나 삼성 인터넷으로'} 다시 열어 주세요.</p>
+        {ios && (
           <Steps
-            items={
-              ios
-                ? [kakao ? '오른쪽 아래 공유(⬆︎) 또는 ··· 누르기' : '··· 또는 공유 버튼 누르기', '‘Safari로 열기’ 누르기', 'Safari에서 공유(⬆︎) → 홈 화면에 추가']
-                : ['오른쪽 위(또는 아래) ⋮ 누르기', '‘다른 브라우저로 열기’ 누르기 (크롬)', '크롬에서 ⋮ → 홈 화면에 추가']
-            }
+            items={[
+              kakao ? '오른쪽 아래 공유(⬆︎) 또는 ··· 누르기' : '··· 또는 공유 버튼 누르기',
+              '‘Safari로 열기’ 누르기',
+              'Safari에서 공유(⬆︎) → 홈 화면에 추가',
+            ]}
           />
         )}
       </>
@@ -201,8 +234,20 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
             href={chromeHref}
             className="flex h-14 w-full items-center justify-center rounded-2xl bg-present text-[17px] font-semibold text-ink transition hover:brightness-[0.97] active:brightness-95"
           >
-            크롬으로 열기
+            {/* 카톡은 휴대폰의 기본 브라우저(갤럭시는 대개 삼성 인터넷)로 열어요 */}
+            {kakao ? '다른 브라우저로 열기' : '크롬으로 열기'}
           </a>
+        )}
+        {!ios && (
+          <>
+            {chromeHref && <p className="pt-1 text-[14px] font-semibold text-ink-3">버튼이 안 되면</p>}
+            <Steps
+              items={[
+                '오른쪽 위(또는 아래) ⋮ 누르기',
+                kakao ? '‘다른 브라우저로 열기’ 누르기' : '‘다른 브라우저로 열기’ · ‘외부 브라우저로 열기’ · ‘Chrome으로 열기’ 같은 메뉴 누르기',
+              ]}
+            />
+          </>
         )}
         <CopyAddress address={address} copy={copy} onCopy={() => void doCopy()} />
       </div>
@@ -220,7 +265,7 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
     body = <p>알림은 iOS 16.4 이상에서 받을 수 있어요. 설정 → 일반 → 소프트웨어 업데이트에서 업데이트한 뒤 다시 열어 주세요.</p>
   } else {
     title = '이 브라우저는 알림을 받을 수 없어요'
-    body = <p>{ios ? '아이폰은 Safari' : desktop ? 'PC는 크롬이나 엣지' : '휴대폰은 크롬'}로 열어 주세요.</p>
+    body = <p>{ios ? '아이폰은 Safari로' : desktop ? 'PC는 크롬이나 엣지로' : '휴대폰은 크롬이나 삼성 인터넷으로'} 열어 주세요.</p>
     action = <CopyAddress address={address} copy={copy} onCopy={() => void doCopy()} />
   }
 
@@ -235,6 +280,17 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
         {action}
       </div>
     </div>
+  )
+}
+
+/** 안드로이드 알림 안내 끝에 붙는 말 */
+function AndroidNote({ standalone }: { standalone: boolean }) {
+  return (
+    <p className="text-[14px] leading-relaxed text-ink-3">
+      {standalone
+        ? '켰는데도 안 열리면 최근 앱 화면에서 AM 출석부를 위로 밀어 완전히 닫고 다시 열어 주세요.'
+        : '비밀 모드(시크릿 탭)에서는 알림을 켤 수 없어요. 일반 탭으로 열어 주세요.'}
+    </p>
   )
 }
 

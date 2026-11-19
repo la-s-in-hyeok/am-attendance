@@ -1,0 +1,115 @@
+/** YYYY-MM-DD (항상 주일 날짜) */
+export type ISODate = string
+
+/** 출석 상태. 기록이 없으면 '미확인' */
+export type Status = 'present' | 'away' | 'nocontact' | 'other'
+
+/** 목장 */
+export interface Group {
+  id: string
+  name: string
+  /** 화면·출력 순서 (작을수록 위) */
+  order: number
+  /** 삭제(보관)된 목장은 더 이상 목록에 나오지 않지만 지난 기록은 남는다 */
+  archived: boolean
+}
+
+export type Role = 'leader' | 'manager' | null
+
+/** 목장원 */
+export interface Member {
+  id: string
+  name: string
+  groupId: string
+  /** leader = 목자, manager = 총무 */
+  role: Role
+  order: number
+  /** 이 날짜(주일) 출석부부터 명단에 나온다 */
+  joinedOn: ISODate
+  /** 이 날짜(주일) 출석부부터 명단에서 빠진다. null 이면 현재 목장원 */
+  removedOn: ISODate | null
+  /** 메모 (연락처 등 자유) */
+  note: string
+}
+
+/** 예배 구분: 1부(노랑) / 2부(민트) */
+export type Service = 1 | 2
+
+export const SERVICE_LABEL: Record<Service, string> = { 1: '1부', 2: '2부' }
+
+/** 한 주일, 한 사람의 출석 기록 */
+export interface AttendanceRecord {
+  date: ISODate
+  memberId: string
+  /** 기록 당시 소속 목장 (목장 이동 후에도 지난 기록이 원래 목장에 남도록) */
+  groupId: string
+  status: Status
+  /** 출석일 때 몇 부 예배인지. 출석이 아니면 null. (값이 없는 옛 기록은 1부로 본다) */
+  service?: Service | null
+  /** 결석 사유 (기타일 때 필수, 타지·연락두절일 때는 선택 메모) */
+  reason: string
+  updatedAt: string
+}
+
+export interface NamedNote {
+  name: string
+  /** 인도자, 소속, 메모 등 */
+  note: string
+}
+
+/** 한 주일의 기타 기록 (엑셀 아래쪽 '새친구 / 방문 / 바나바 현황' 칸) */
+export interface WeekNote {
+  date: ISODate
+  /** 새신자·새친구 (출석 인원에 더해진다) */
+  newcomers: NamedNote[]
+  /** 방문 (출석 인원에 더해진다) */
+  visitors: NamedNote[]
+  /** 바나바 현황 자유 기록 */
+  barnabas: string
+  /** 그 밖의 메모 */
+  memo: string
+  updatedAt: string
+}
+
+export const STATUS_LABEL: Record<Status, string> = {
+  present: '출석',
+  away: '타지',
+  nocontact: '연락두절',
+  other: '기타',
+}
+
+export const ROLE_LABEL: Record<'leader' | 'manager', string> = {
+  leader: '목자',
+  manager: '총무',
+}
+
+/* ───────────── 목장 출석체크 완료 / 수정 ───────────── */
+
+/** done = 완료 (명단 잠김), editing = 완료 뒤 '수정' 중. 기록이 없으면 아직 완료 전 */
+export type GroupDayState = 'done' | 'editing'
+
+/** 한 주일, 한 목장의 완료 상태 */
+export interface GroupDay {
+  date: ISODate
+  groupId: string
+  state: GroupDayState
+  /** 마지막으로 완료(또는 수정 완료)를 누른 시각 */
+  doneAt: string | null
+  /** 완료한 뒤 고친(수정 완료) 횟수 */
+  editCount: number
+  updatedAt: string
+}
+
+/** done = 출석체크 완료, edited = 완료 뒤 수정 */
+export type NoticeKind = 'done' | 'edited'
+
+/** 다른 기기에 보내는 '완료했어요' 알림 (이름 같은 개인 정보는 없음) */
+export interface CompletionNotice {
+  kind: NoticeKind
+  /** 목장 이름 (받는 쪽은 자기 명단의 이름을 먼저 써요) */
+  group: string
+  groupId: string
+  date: ISODate
+  /** 그때의 수정 횟수 (같은 알림을 한 번만 보여 주기 위해) */
+  n: number
+}

@@ -1,0 +1,791 @@
+[
+ {
+  "name": "리더",
+  "members": [
+   {
+    "name": "라신혁",
+    "role": "leader"
+   },
+   {
+    "name": "홍재민",
+    "role": "manager"
+   },
+   {
+    "name": "윤반석",
+    "role": null
+   },
+   {
+    "name": "이유겸",
+    "role": null
+   },
+   {
+    "name": "배하훈",
+    "role": null
+   },
+   {
+    "name": "박대형",
+    "role": null
+   },
+   {
+    "name": "황대규",
+    "role": null
+   },
+   {
+    "name": "유청기",
+    "role": null
+   },
+   {
+    "name": "김민규A",
+    "role": null
+   },
+   {
+    "name": "김종범",
+    "role": null
+   },
+   {
+    "name": "전범수",
+    "role": null
+   },
+   {
+    "name": "전영준",
+    "role": null
+   },
+   {
+    "name": "김민규B",
+    "role": null
+   },
+   {
+    "name": "한준호",
+    "role": null
+   },
+   {
+    "name": "김헌섭",
+    "role": null
+   },
+   {
+    "name": "임규영",
+    "role": null
+   },
+   {
+    "name": "안성현",
+    "role": null
+   },
+   {
+    "name": "조정빈",
+    "role": null
+   },
+   {
+    "name": "김동건",
+    "role": null
+   },
+   {
+    "name": "최강",
+    "role": null
+   },
+   {
+    "name": "이한별",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "도움",
+  "members": [
+   {
+    "name": "임성찬",
+    "role": "leader"
+   },
+   {
+    "name": "김정윤",
+    "role": "manager"
+   },
+   {
+    "name": "전상재",
+    "role": null
+   },
+   {
+    "name": "송유민",
+    "role": null
+   },
+   {
+    "name": "황진규",
+    "role": null
+   },
+   {
+    "name": "심지운",
+    "role": null
+   },
+   {
+    "name": "신은철",
+    "role": null
+   },
+   {
+    "name": "김의영",
+    "role": null
+   },
+   {
+    "name": "김요한",
+    "role": null
+   },
+   {
+    "name": "강민",
+    "role": null
+   },
+   {
+    "name": "김재휘",
+    "role": null
+   },
+   {
+    "name": "이찬희",
+    "role": null
+   },
+   {
+    "name": "김우진",
+    "role": null
+   },
+   {
+    "name": "남건우",
+    "role": null
+   },
+   {
+    "name": "서건희",
+    "role": null
+   },
+   {
+    "name": "김수영",
+    "role": null
+   },
+   {
+    "name": "임노아",
+    "role": null
+   },
+   {
+    "name": "이서율",
+    "role": null
+   },
+   {
+    "name": "조우빈",
+    "role": null
+   },
+   {
+    "name": "조성철",
+    "role": null
+   },
+   {
+    "name": "고예강",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "Living hope",
+  "members": [
+   {
+    "name": "권유미",
+    "role": "leader"
+   },
+   {
+    "name": "조여경",
+    "role": "manager"
+   },
+   {
+    "name": "김세항",
+    "role": null
+   },
+   {
+    "name": "유시은",
+    "role": null
+   },
+   {
+    "name": "정진우",
+    "role": null
+   },
+   {
+    "name": "김진석",
+    "role": null
+   },
+   {
+    "name": "조유래",
+    "role": null
+   },
+   {
+    "name": "김의빈",
+    "role": null
+   },
+   {
+    "name": "이준원",
+    "role": null
+   },
+   {
+    "name": "고서빈",
+    "role": null
+   },
+   {
+    "name": "박희진",
+    "role": null
+   },
+   {
+    "name": "김민규",
+    "role": null
+   },
+   {
+    "name": "김푸름",
+    "role": null
+   },
+   {
+    "name": "김광훈",
+    "role": null
+   },
+   {
+    "name": "오선영",
+    "role": null
+   },
+   {
+    "name": "권혜송",
+    "role": null
+   },
+   {
+    "name": "남혜빈",
+    "role": null
+   },
+   {
+    "name": "박예린",
+    "role": null
+   },
+   {
+    "name": "추대식",
+    "role": null
+   },
+   {
+    "name": "김강민",
+    "role": null
+   },
+   {
+    "name": "김성원",
+    "role": null
+   },
+   {
+    "name": "나영서",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "자유",
+  "members": [
+   {
+    "name": "김나연",
+    "role": "leader"
+   },
+   {
+    "name": "공소향",
+    "role": "manager"
+   },
+   {
+    "name": "박지현A",
+    "role": null
+   },
+   {
+    "name": "이미영",
+    "role": null
+   },
+   {
+    "name": "이정미",
+    "role": null
+   },
+   {
+    "name": "유혁진",
+    "role": null
+   },
+   {
+    "name": "정세희",
+    "role": null
+   },
+   {
+    "name": "강초연",
+    "role": null
+   },
+   {
+    "name": "김주희",
+    "role": null
+   },
+   {
+    "name": "김예원",
+    "role": null
+   },
+   {
+    "name": "문민지",
+    "role": null
+   },
+   {
+    "name": "문민정",
+    "role": null
+   },
+   {
+    "name": "설준하",
+    "role": null
+   },
+   {
+    "name": "송민주",
+    "role": null
+   },
+   {
+    "name": "임정민",
+    "role": null
+   },
+   {
+    "name": "이소연",
+    "role": null
+   },
+   {
+    "name": "고가은",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "사랑",
+  "members": [
+   {
+    "name": "김하람",
+    "role": "leader"
+   },
+   {
+    "name": "홍나엘",
+    "role": "manager"
+   },
+   {
+    "name": "강은주",
+    "role": null
+   },
+   {
+    "name": "엄주희",
+    "role": null
+   },
+   {
+    "name": "백승기",
+    "role": null
+   },
+   {
+    "name": "정창진",
+    "role": null
+   },
+   {
+    "name": "정주명",
+    "role": null
+   },
+   {
+    "name": "정민호",
+    "role": null
+   },
+   {
+    "name": "주상욱",
+    "role": null
+   },
+   {
+    "name": "심지호",
+    "role": null
+   },
+   {
+    "name": "백지설",
+    "role": null
+   },
+   {
+    "name": "이주현",
+    "role": null
+   },
+   {
+    "name": "김지수",
+    "role": null
+   },
+   {
+    "name": "임하영",
+    "role": null
+   },
+   {
+    "name": "임지영",
+    "role": null
+   },
+   {
+    "name": "선혜림",
+    "role": null
+   },
+   {
+    "name": "전상민",
+    "role": null
+   },
+   {
+    "name": "권재민",
+    "role": null
+   },
+   {
+    "name": "배하은",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "요셉",
+  "members": [
+   {
+    "name": "김대규",
+    "role": "leader"
+   },
+   {
+    "name": "김진욱",
+    "role": "manager"
+   },
+   {
+    "name": "신지운",
+    "role": null
+   },
+   {
+    "name": "신성민",
+    "role": null
+   },
+   {
+    "name": "박지환B",
+    "role": null
+   },
+   {
+    "name": "김형룡",
+    "role": null
+   },
+   {
+    "name": "신기찬",
+    "role": null
+   },
+   {
+    "name": "박전수",
+    "role": null
+   },
+   {
+    "name": "이창민",
+    "role": null
+   },
+   {
+    "name": "김성학",
+    "role": null
+   },
+   {
+    "name": "이다빈",
+    "role": null
+   },
+   {
+    "name": "고한별",
+    "role": null
+   },
+   {
+    "name": "채민상",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "그로잉",
+  "members": [
+   {
+    "name": "김은총",
+    "role": "leader"
+   },
+   {
+    "name": "곽시은",
+    "role": "manager"
+   },
+   {
+    "name": "김화현",
+    "role": null
+   },
+   {
+    "name": "강로연",
+    "role": null
+   },
+   {
+    "name": "정수빈",
+    "role": null
+   },
+   {
+    "name": "이지현",
+    "role": null
+   },
+   {
+    "name": "김보항",
+    "role": null
+   },
+   {
+    "name": "박하윤",
+    "role": null
+   },
+   {
+    "name": "유희재",
+    "role": null
+   },
+   {
+    "name": "장예원",
+    "role": null
+   },
+   {
+    "name": "김하율",
+    "role": null
+   },
+   {
+    "name": "문지현",
+    "role": null
+   },
+   {
+    "name": "송시은",
+    "role": null
+   },
+   {
+    "name": "엄선빈",
+    "role": null
+   },
+   {
+    "name": "김예은B",
+    "role": null
+   },
+   {
+    "name": "황새벽",
+    "role": null
+   },
+   {
+    "name": "이예원",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "에스겔",
+  "members": [
+   {
+    "name": "서예빈",
+    "role": "leader"
+   },
+   {
+    "name": "김효령",
+    "role": "manager"
+   },
+   {
+    "name": "강벼리",
+    "role": null
+   },
+   {
+    "name": "김채연",
+    "role": null
+   },
+   {
+    "name": "송승아",
+    "role": null
+   },
+   {
+    "name": "윤보석",
+    "role": null
+   },
+   {
+    "name": "이소율",
+    "role": null
+   },
+   {
+    "name": "김은별",
+    "role": null
+   },
+   {
+    "name": "이동기",
+    "role": null
+   },
+   {
+    "name": "전도현",
+    "role": null
+   },
+   {
+    "name": "문찬",
+    "role": null
+   },
+   {
+    "name": "이경록",
+    "role": null
+   },
+   {
+    "name": "김성일",
+    "role": null
+   },
+   {
+    "name": "김연수",
+    "role": null
+   },
+   {
+    "name": "김유정",
+    "role": null
+   },
+   {
+    "name": "김예은",
+    "role": null
+   },
+   {
+    "name": "여승준",
+    "role": null
+   }
+  ]
+ },
+ {
+  "name": "부흥",
+  "members": [
+   {
+    "name": "김융학",
+    "role": "leader"
+   },
+   {
+    "name": "권시은",
+    "role": "manager"
+   },
+   {
+    "name": "정승진",
+    "role": null
+   },
+   {
+    "name": "고수아",
+    "role": null
+   },
+   {
+    "name": "박지운",
+    "role": null
+   },
+   {
+    "name": "정명욱",
+    "role": null
+   },
+   {
+    "name": "김세찬",
+    "role": null
+   },
+   {
+    "name": "이동빈",
+    "role": null
+   },
+   {
+    "name": "강두연",
+    "role": null
+   },
+   {
+    "name": "김규민",
+    "role": null
+   },
+   {
+    "name": "양승찬",
+    "role": null
+   },
+   {
+    "name": "임지혁",
+    "role": null
+   },
+   {
+    "name": "박지환",
+    "role": null
+   },
+   {
+    "name": "김민혁",
+    "role": null
+   },
+   {
+    "name": "김가은",
+    "role": null
+   },
+   {
+    "name": "김규리",
+    "role": null
+   },
+   {
+    "name": "이혜빈",
+    "role": null
+   },
+   {
+    "name": "최한나",
+    "role": null
+   },
+   {
+    "name": "권동재",
+    "role": null
+   },
+   {
+    "name": "지성현",
+    "role": null
+   },
+   {
+    "name": "나하준",
+    "role": null
+   },
+   {
+    "name": "윤승재",
+    "role": null
+   },
+   {
+    "name": "정민지",
+    "role": null
+   },
+   {
+    "name": "김민재",
+    "role": null
+   },
+   {
+    "name": "김서진",
+    "role": null
+   },
+   {
+    "name": "박형영",
+    "role": null
+   },
+   {
+    "name": "연진흠",
+    "role": null
+   },
+   {
+    "name": "심건우",
+    "role": null
+   },
+   {
+    "name": "이태랑",
+    "role": null
+   },
+   {
+    "name": "서보경",
+    "role": null
+   },
+   {
+    "name": "이나은",
+    "role": null
+   },
+   {
+    "name": "김희정",
+    "role": null
+   },
+   {
+    "name": "박근형",
+    "role": null
+   },
+   {
+    "name": "윤다빈",
+    "role": null
+   },
+   {
+    "name": "두호현",
+    "role": null
+   },
+   {
+    "name": "박성열",
+    "role": null
+   },
+   {
+    "name": "윤도현",
+    "role": null
+   },
+   {
+    "name": "전승우",
+    "role": null
+   },
+   {
+    "name": "최윤진",
+    "role": null
+   }
+  ]
+ }
+]

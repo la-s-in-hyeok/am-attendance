@@ -60,6 +60,34 @@ export function isStandalone(): boolean {
   }
 }
 
+/**
+ * 카카오톡·네이버·인스타그램 등 앱 안에서 열린 브라우저.
+ * 이런 화면은 알림을 받을 수 없어서 Safari·크롬으로 다시 열어야 해요.
+ */
+export function inAppBrowser(): 'kakao' | 'other' | null {
+  if (typeof navigator === 'undefined') return null
+  const ua = navigator.userAgent
+  if (/KAKAOTALK/i.test(ua)) return 'kakao'
+  if (/NAVER\(inapp|Instagram|FBAN|FBAV|FB_IAB|BAND\/|DaumApps|everytimeApp|; wv\)/i.test(ua) || /\bLine\//.test(ua)) return 'other'
+  // 아이폰의 텔레그램·X·슬랙 같은 앱 안 화면: Safari 표시(Safari/)가 없다 (홈 화면 앱은 제외)
+  if (isIOS() && !isStandalone() && !/Safari\//.test(ua)) return 'other'
+  return null
+}
+
+/** 휴대폰·태블릿이 아닌 PC */
+export function isDesktop(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return !isIOS() && !/Android|Mobile/i.test(navigator.userAgent)
+}
+
+/** 안드로이드에서 이 주소를 크롬으로 바로 여는 주소 (카톡은 카톡 전용 주소) */
+export function openInChromeHref(address: string): string | null {
+  if (typeof navigator === 'undefined' || !/Android/i.test(navigator.userAgent)) return null
+  if (/KAKAOTALK/i.test(navigator.userAgent)) return `kakaotalk://web/openExternal?url=${encodeURIComponent(address)}`
+  const u = new URL(address)
+  return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=https;package=com.android.chrome;end`
+}
+
 /** ok = 알림을 쓸 수 있음, ios-home = 아이폰은 홈 화면에 추가해야 함, unsupported = 이 브라우저는 안 됨 */
 export type NotifySupport = 'ok' | 'ios-home' | 'unsupported'
 
@@ -93,6 +121,29 @@ function writePref(v: 'on' | 'off') {
   } catch {
     /* 무시 */
   }
+}
+
+/**
+ * 이 기기의 알림 상태 (알림을 켜야만 앱을 쓸 수 있게 막을 때 씀)
+ * - on: 켜져 있음
+ * - inapp: 카톡 등 앱 안 브라우저 → Safari·크롬으로 다시 열어야 함
+ * - ios-home: 아이폰 Safari → 홈 화면에 추가한 앱으로 열어야 함
+ * - ios-old: 홈 화면 앱인데 알림이 안 됨 → iOS 16.4 이상으로 업데이트
+ * - unsupported: 이 브라우저는 알림이 안 됨
+ * - default: 아직 안 켬 (버튼 한 번이면 켜짐)
+ * - denied: 설정에서 막혀 있음 → 설정에서 다시 허용
+ */
+export type NotifyStatus = 'on' | 'inapp' | 'ios-home' | 'ios-old' | 'unsupported' | 'default' | 'denied'
+
+export function notifyStatus(): NotifyStatus {
+  if (inAppBrowser()) return 'inapp'
+  const sup = notifySupport()
+  if (sup === 'ios-home') return 'ios-home'
+  if (sup === 'unsupported') return isIOS() && isStandalone() ? 'ios-old' : 'unsupported'
+  const p = Notification.permission
+  if (p === 'denied') return 'denied'
+  if (p === 'granted' && readPref() !== 'off') return 'on'
+  return 'default'
 }
 
 /** 이 기기에서 휴대폰 알림을 받는지 (허용돼 있고, 끄지 않았으면) */
@@ -158,7 +209,12 @@ export async function showSystemNotice(notice: CompletionNotice, body: string): 
     icon: './icon-192.png',
     badge: './icon-192.png',
     data: { url: './', date: notice.date, groupId: notice.groupId },
-  } satisfies NotificationOptions
+    // 눌러서 확인할 때까지 화면에 남기고(주로 PC), 같은 알림이어도 다시 울리게.
+    // 진동은 안드로이드 8 이상에서는 휴대폰의 알림 채널 설정을 따라요
+    requireInteraction: true,
+    renotify: true,
+    vibrate: [300, 100, 300, 100, 600],
+  } as NotificationOptions & { renotify: boolean; vibrate: number[] }
   try {
     const reg = await registration(1500)
     if (reg) {

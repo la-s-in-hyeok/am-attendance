@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { disableNotifications, enableNotifications, isIOS, notifyPermission, notifySupport, showSystemNotice, systemNotifyOn } from '../../lib/push'
+import { enableNotifications, isIOS, notifyPermission, notifySupport, showSystemNotice, systemNotifyOn } from '../../lib/push'
 import { currentSunday } from '../../lib/dates'
 import { useStore } from '../../store'
 import { Button, Sheet } from '../ui'
@@ -52,13 +52,6 @@ export function NotifyButton() {
     } finally {
       setBusy(false)
     }
-  }
-
-  const turnOff = async () => {
-    setSheet(null)
-    await disableNotifications(backend)
-    setOn(false)
-    toast('이 기기 알림을 껐어요', 'info')
   }
 
   const test = () => {
@@ -126,8 +119,8 @@ export function NotifyButton() {
           <Button variant="secondary" className="flex-1" onClick={test}>
             시험 알림
           </Button>
-          <Button variant="secondary" className="flex-1" onClick={() => void turnOff()}>
-            알림 끄기
+          <Button variant="secondary" className="flex-1" onClick={() => setSheet(null)}>
+            확인
           </Button>
         </div>
       </Sheet>

@@ -1,5 +1,5 @@
 // 앱 화면(HTML·JS·CSS)만 캐시한다. 출석 데이터는 항상 서버에서 받아온다.
-const CACHE = 'am-attendance-v2'
+const CACHE = 'am-attendance-v3'
 self.addEventListener('install', (e) => {
   self.skipWaiting()
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html', './icon.svg', './manifest.webmanifest'])))
@@ -39,6 +39,9 @@ self.addEventListener('push', (e) => {
     icon: './icon-192.png',
     badge: './icon-192.png',
     data: { date: d.date, groupId: d.groupId },
+    // 눌러서 확인할 때까지 화면에 남기고(주로 PC), 진동해요 (안드로이드 8 이상은 휴대폰 알림 설정을 따라요)
+    requireInteraction: true,
+    vibrate: [300, 100, 300, 100, 600],
   }
   if (typeof d.tag === 'string' && d.tag) {
     // 실시간으로 이미 띄운 같은 알림이 있으면 하나로 합쳐요

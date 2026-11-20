@@ -12,6 +12,7 @@ import { Button, Icon } from '../ui'
 import { ToolbarIcon, type ToolIcon } from './toolbarIcons'
 import { NoteSaver, clearDraft, readDraft, stableJson, type Draft, type SaveState, type Snapshot } from './noteSaver'
 import { handleCalAuthError, useCalendar } from './useCalendar'
+import { attachTapToCaret, revealCaret, revealCaretSettled, type NoteViewportParts } from './noteViewport'
 import './editor.css'
 
 /*
@@ -34,6 +35,10 @@ export interface NoteEditorProps {
   handleRef: { current: NoteEditorHandle | null }
   /** 일정이 지워졌으면 저장을 멈춰요 */
   paused: boolean
+  /** 휴대폰에서 글을 굴리는 칸 (회의록 층 안). PC 처럼 창 전체가 굴러가면 null */
+  scroller: HTMLElement | null
+  /** 톡 눌러 커서를 놓을 칸 (글 양옆 여백·글 아래 빈 곳 포함) */
+  tapArea: HTMLElement | null
 }
 
 /**
@@ -224,6 +229,8 @@ function NoteBody({
   onStatus,
   handleRef,
   paused,
+  scroller,
+  tapArea,
   note,
   draft,
   offline,
@@ -237,6 +244,10 @@ function NoteBody({
   const cache = useRef<{ doc: unknown; plainLen: number } | null>(null)
   const onStatusRef = useRef(onStatus)
   onStatusRef.current = onStatus
+  // 위에 붙은 띠(뒤로·도구 막대)와 글이 굴러가는 칸: 커서 줄이 띠·키보드에 가려지지 않게 볼 때 써요
+  const partsRef = useRef({ band: null as HTMLElement | null, scroller: null as HTMLElement | null })
+  partsRef.current = { band: toolbarSlot?.parentElement ?? null, scroller }
+  const [parts] = useState<NoteViewportParts>(() => ({ band: () => partsRef.current.band, scroller: () => partsRef.current.scroller }))
 
   const editor = useEditor({
     extensions: EXTENSIONS,
@@ -245,9 +256,11 @@ function NoteBody({
     shouldRerenderOnTransaction: false,
     editorProps: {
       attributes: { class: 'am-prose', 'aria-label': '회의록 내용', spellcheck: 'false' },
-      // 위에 붙은 띠(뒤로·도구 막대)가 커서 줄을 가리지 않게 여유를 두고 스크롤해요
-      scrollThreshold: { top: 140, bottom: 64, left: 0, right: 0 },
-      scrollMargin: { top: 140, bottom: 64, left: 0, right: 0 },
+      // 커서를 보이게 할 때: 위쪽 띠 아래 ~ 키보드 위 사이에 들도록 필요한 만큼만 (noteViewport.ts)
+      handleScrollToSelection: (view) => {
+        revealCaretSettled(view, parts)
+        return true
+      },
     },
     onUpdate: ({ editor: ed }) => {
       cache.current = { doc: ed.getJSON(), plainLen: ed.getText().length }
@@ -258,7 +271,11 @@ function NoteBody({
   useEffect(() => {
     if (!editor) return
     const snapshot = (): Snapshot => {
-      if (!editor.isDestroyed) cache.current = { doc: editor.getJSON(), plainLen: editor.getText().length }
+      if (!editor.isDestroyed)
+        cache.current = {
+          doc: editor.getJSON(),
+          plainLen: editor.getText().length,
+        }
       const c = cache.current ?? { doc: null, plainLen: 0 }
       return { doc: c.doc, json: stableJson(c.doc), plainLen: c.plainLen }
     }
@@ -306,6 +323,46 @@ function NoteBody({
   useEffect(() => {
     saverRef.current?.setPaused(paused)
   }, [paused])
+
+  // 휴대폰: 초점 없는 글을 톡 누르면 누른 자리에 커서, 화면은 그대로 (브라우저가 칸 전체를 끌어오지 않게)
+  useEffect(() => {
+    if (!editor || !tapArea) return
+    const tap = attachTapToCaret(editor.view, tapArea)
+    const onTr = ({ transaction }: { transaction: Parameters<typeof tap.afterTransaction>[0] }) => tap.afterTransaction(transaction)
+    editor.on('transaction', onTr)
+    return () => {
+      editor.off('transaction', onTr)
+      tap.destroy()
+    }
+  }, [editor, tapArea])
+
+  // 키보드가 올라오거나(보이는 높이가 줄어) 화면이 바뀌어 커서 줄이 가려지면 그만큼만 부드럽게 올려요.
+  // 키보드가 움직이는 동안 크기 알림이 여러 번 오니, 바로 한 번 + 멈춘 뒤 한 번 더 봐요
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!editor || !vv) return
+    let lastHeight = vv.height
+    let raf = 0
+    let settle = 0
+    const reveal = () => {
+      if (!editor.isDestroyed && editor.view.hasFocus()) revealCaret(editor.view, parts, true)
+    }
+    const onResize = () => {
+      const changed = Math.abs(vv.height - lastHeight) > 1
+      lastHeight = vv.height
+      if (!changed || editor.isDestroyed || !editor.view.hasFocus()) return
+      cancelAnimationFrame(raf)
+      window.clearTimeout(settle)
+      raf = requestAnimationFrame(reveal)
+      settle = window.setTimeout(reveal, 260)
+    }
+    vv.addEventListener('resize', onResize)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.clearTimeout(settle)
+      vv.removeEventListener('resize', onResize)
+    }
+  }, [editor, parts])
 
   // 다른 기기에서 바뀌었다는 알림(또는 30초 새로고침): 내가 고치는 중·한글 조합 중·저장 중이 아닐 때만 받아요
   const tick = useCalendar((s) => s.remoteTick)
@@ -404,7 +461,11 @@ function Toolbar({ editor }: { editor: Editor }) {
       bold: ed.isActive('bold'),
     }),
   })
-  const c = () => editor.chain().focus()
+  // 키보드가 닫혀 있을 때 도구를 눌러도 화면이 튀지 않게: 먼저 preventScroll 로 초점을 줘요 (noteViewport.ts 참고)
+  const c = () => {
+    if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true })
+    return editor.chain().focus()
+  }
   const tools: Tool[] = [
     {
       key: 'heading',

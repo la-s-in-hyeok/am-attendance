@@ -210,3 +210,16 @@
 .am-note .ProseMirror .ProseMirror-gapcursor:after {
   border-top-color: var(--color-ink);
 }
+
+/* 휴대폰 회의록 층(EventNotePage): 인쇄할 때는 고정·스크롤을 풀어 글 전체가 나오게 */
+@media print {
+  .am-note-layer {
+    position: static !important;
+    display: block !important;
+    height: auto !important;
+    transform: none !important;
+  }
+  .am-note-layer .am-note-scroll {
+    overflow: visible !important;
+  }
+}

@@ -10,7 +10,7 @@ import { useCalendar } from './useCalendar'
  *   삼성 인터넷은 pointercancel 이 다르게 와서 터치는 touch 이벤트로만 처리해요.
  *   iOS 사파리는 touchmove 를 막으려면 non-passive 리스너가 미리 붙어 있어야 해서 document 에 처음부터 달아 둬요.
  * - 놓은 칸은 손가락 아래의 [data-day] 칸. 잡은 날 기준으로 옮겨요 (여러 날 일정의 둘째 날을 잡으면 그 날이 놓은 칸으로).
- * - 같은 칸이나 달력 밖에 놓으면 취소. 끈 다음에 따라오는 click 은 무시해요 (회의록이 열리지 않게).
+ * - 같은 칸이나 달력 밖에 놓으면 취소. 끈 다음에 따라오는 click 은 무시해요 (그날 보기가 열리지 않게).
  *   달력 밖(토스트의 '되돌리기' 등)의 click 이나, 새로 누른 뒤의 click 은 막지 않아요.
  */
 
@@ -77,7 +77,7 @@ export function useEventDrag(gridRef: RefObject<HTMLElement | null>, onDrop: (ev
     if (!g.active) return
     document.documentElement.style.removeProperty('user-select')
     document.documentElement.style.removeProperty('-webkit-user-select')
-    // 끈 다음 손을 떼면 click 이 따라오는데, 회의록이 열리지 않게 잠깐 막아요.
+    // 끈 다음 손을 떼면 click 이 따라오는데, 그날 보기가 열리지 않게 잠깐 막아요.
     // 터치는 touchend 를 막아서 click 이 안 와요: 그때는 막지 않아야 바로 다음 탭이 먹혀요
     suppressClickUntil.current = clickFollows ? performance.now() + 600 : 0
     setView(null)
@@ -165,7 +165,7 @@ export function useEventDrag(gridRef: RefObject<HTMLElement | null>, onDrop: (ev
         if (blocked) e.preventDefault()
         end({ x: t.clientX, y: t.clientY }, !blocked)
       } else {
-        // 짧게 누른 것은 그냥 click (회의록 열기)
+        // 짧게 누른 것은 그냥 click (그날 보기 열기)
         end(null)
       }
     }

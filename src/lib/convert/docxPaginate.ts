@@ -46,6 +46,8 @@ export type SectionGeo = {
   contentW: number
   /** 자르면 안 되는 구간 (겹친 것은 합쳐서, 위에서부터) */
   atoms: [number, number][]
+  /** 합치기 전의 글자 줄·그림·표 줄 하나하나 (위에서부터). 한 쪽보다 큰 덩어리를 나눌 때 줄 사이를 찾는 데 써요 */
+  pieces: [number, number][]
   /** 눈에 보이는 것(글자·그림·표)이 있는 구간 */
   ink: [number, number][]
   /** 워드가 쪽을 넘긴 자리 (자를 수 있는 위치로 맞춘 값, 위에서부터) */
@@ -67,6 +69,8 @@ export type Plan = {
   usedMarks: number
   /** 한 쪽보다 큰 덩어리(큰 그림 등)를 어쩔 수 없이 잘랐는지 */
   forced: boolean
+  /** 쪽이 너무 많아서 끝까지 나누지 못하고 멈췄는지 (그러면 pages.length 는 실제 쪽수가 아니에요) */
+  truncated: boolean
   /** 고른 계획 (한 쪽에 담은 양, 워드 쪽 넘김 자리를 썼는지) */
   cap: number
   useMarks: boolean
@@ -233,6 +237,7 @@ export function measureSection(section: HTMLElement, win: Window): SectionGeo {
     }
     for (const el of Array.from(b.querySelectorAll('table, p'))) right = Math.max(right, el.getBoundingClientRect().right - box.left)
   }
+  const pieces = raw.map(([a, b]): [number, number] => [a, b]).sort((p, q) => p[0] - q[0])
   const atoms = mergeAtoms(raw)
   const tables: [number, number][] = []
   const heads: RepeatHead[] = []
@@ -268,9 +273,12 @@ export function measureSection(section: HTMLElement, win: Window): SectionGeo {
     if (a) y = a[0]
     found.push({ y, weak: false, rowH: 0 })
   }
-  // 줄이 여러 쪽에 걸치면 워드는 내용 칸에도 표시를 남겨요. 같은 줄 안에 그런 표시가 있으면
-  // 그 줄은 앞 쪽에서 이미 시작한 거라, 가운데 맞춤 칸의 표시는 버려요
-  for (const w of weak) if (!found.some((f) => !f.weak && f.y > w.y + 2 && f.y < w.rowBottom - 2)) found.push({ y: w.y, weak: true, rowH: w.rowBottom - w.y })
+  // 줄이 여러 쪽에 걸치면 워드는 내용 칸에도 표시를 남겨요. 같은 줄 안에 그런 표시가 줄 맨 위에서 한 쪽 높이보다
+  // 가까이 있으면 그 줄은 앞 쪽에서 이미 시작한 거라, 가운데 맞춤 칸의 표시는 버려요.
+  // (줄 맨 위에서 거의 한 쪽 높이만큼 떨어져 있으면 그 줄이 새 쪽 맨 위에서 시작한 거예요)
+  for (const w of weak)
+    if (!found.some((f) => !f.weak && f.y > w.y + 2 && f.y < w.rowBottom - 2 && f.y - w.y < bodyH * 0.9))
+      found.push({ y: w.y, weak: true, rowH: w.rowBottom - w.y })
   const marks = found.filter((f) => f.y > bodyTop + 2 && f.y < end - 2).sort((a, b) => a.y - b.y)
   // 거의 같은 자리의 표시는 하나로 (확실한 표시를 남겨요)
   const uniq: PageMark[] = []
@@ -279,7 +287,7 @@ export function measureSection(section: HTMLElement, win: Window): SectionGeo {
     if (last && f.y - last.y <= 3) last.weak &&= f.weak
     else uniq.push({ ...f })
   }
-  return { section, pageW, pageH, bodyTop, bodyH, end, contentW: right, atoms, ink: mergeAtoms(ink), marks: uniq, tables, rowTops: rowTops.sort((a, b) => a - b), heads }
+  return { section, pageW, pageH, bodyTop, bodyH, end, contentW: right, atoms, ink: mergeAtoms(ink), pieces, marks: uniq, tables, rowTops: rowTops.sort((a, b) => a - b), heads }
 }
 
 /**
@@ -314,10 +322,71 @@ function blank(g: SectionGeo, a: number, b: number): boolean {
   return !g.ink.some(([x, y]) => y > a + 0.5 && x < b - 0.5)
 }
 
+/**
+ * 한 쪽보다 큰 덩어리 안에서 자를 곳 (lo ~ hi 사이에서 가장 아래).
+ * 줄 간격이 좁으면 위아래 글자 줄의 사각형이 살짝 겹쳐서 덩어리 하나로 합쳐져요. 합치기 전 줄 하나하나를 보고,
+ * 어느 줄도 (거의) 지나가지 않는 높이를 골라요. 그런 곳이 없으면(큰 그림 등) null
+ */
+function fineCut(g: SectionGeo, lo: number, hi: number): number | null {
+  const ps = g.pieces.filter(([a, b]) => b > lo && a < hi)
+  if (ps.length === 0) return null
+  const cands = new Set<number>()
+  for (let i = 0; i < ps.length; i++) {
+    cands.add(ps[i][0])
+    cands.add(ps[i][1])
+    // 겹친 두 줄 사이: 겹친 부분의 가운데
+    for (let j = i + 1; j < ps.length && ps[j][0] < ps[i][1] + 4; j++)
+      if (ps[j][0] < ps[i][1] && ps[j][1] > ps[i][1]) cands.add((ps[j][0] + ps[i][1]) / 2)
+  }
+  // 줄 사각형 끝에서 조금(줄 높이의 1/8 까지) 안쪽은 글자 위아래 빈 곳이라 잘라도 괜찮아요
+  const cost = (y: number) => {
+    let worst = 0
+    for (const [a, b] of ps) if (y > a && y < b) worst = Math.max(worst, Math.min(y - a, b - y) / Math.max(8, b - a))
+    return worst
+  }
+  let best: number | null = null
+  let bestCost = Infinity
+  for (const y of cands) {
+    if (y < lo || y > hi) continue
+    const c = cost(y)
+    if (c < bestCost - 1e-6 || (Math.abs(c - bestCost) <= 1e-6 && best !== null && y > best)) {
+      best = y
+      bestCost = c
+    }
+  }
+  return best !== null && bestCost <= 0.125 ? best : null
+}
+
+/** 표 아래 끝 바로 근처에서 자르면, 표의 아래 테두리(경계 바깥으로 반쯤 나와요)까지 앞 쪽에 담아요 */
+function afterTableBorder(g: SectionGeo, y: number): number {
+  for (const [, b] of g.tables) if (b > y - 3 && b < y + 1.5) return Math.max(y, b + 1.5)
+  return y
+}
+
 /** y0 부터 limit 까지 담을 때 자를 곳 */
-function cutBefore(g: SectionGeo, y0: number, limit: number): number {
+function cutBefore(g: SectionGeo, y0: number, cap: number): number {
+  const limit = y0 + cap
   const a = atomAt(g.atoms, limit)
-  if (!a) return limit
+  if (!a) {
+    // 덩어리 사이 빈 곳: 위아래 덩어리의 가운데에서 잘라요. 글자 아랫부분(밑으로 내려오는 획)이
+    // 줄 사각형보다 1~2px 더 내려올 수 있어서, 바로 밑에서 자르면 다음 쪽 맨 위에 조각이 남아요
+    let pb = y0
+    let nt = g.end
+    for (const [p, q] of g.atoms) {
+      if (q <= limit + 0.5) pb = Math.max(pb, q)
+      else if (p >= limit - 0.5) {
+        nt = p
+        break
+      }
+    }
+    if (nt - pb <= 16) return Math.max(pb, Math.min(nt, (pb + nt) / 2))
+    return Math.min(Math.max(limit, pb + 3), nt - 3)
+  }
+  // 한 쪽보다 큰 덩어리(쪼갤 수 있는 긴 표 줄 등)는 다음 쪽으로 넘기지 않고 이 쪽에서부터 줄 사이에서 나눠요
+  if (a[1] - a[0] > g.bodyH || (a[0] <= y0 + 1 && a[1] - y0 > g.bodyH / 0.7)) {
+    const f = fineCut(g, Math.max(y0 + 1, limit - cap * 0.5), limit)
+    if (f !== null && f > y0 + 1) return f
+  }
   if (a[0] > y0 + 1) return a[0]
   // 한 덩어리가 쪽보다 커요: 조금 줄여서 담을 수 있으면 통째로, 아니면 어쩔 수 없이 잘라요
   if (a[1] - y0 <= g.bodyH / 0.7) return a[1]
@@ -339,13 +408,18 @@ function roomAfter(g: SectionGeo, m: number, free: number): boolean {
 
 type Options = { cap: number; useMarks: boolean }
 
-function planSection(g: SectionGeo, o: Options, pages: Slice[]): { minScale: number; usedMarks: number; forced: boolean } {
+/** 한 구역에서 만들 쪽수 한도. 이보다 많으면 어차피 올릴 수 없어서 더 나누지 않아요 */
+const SECTION_GUARD = 500
+
+function planSection(g: SectionGeo, o: Options, pages: Slice[]): { minScale: number; usedMarks: number; forced: boolean; truncated: boolean } {
   let forced = false
   let y0 = g.bodyTop
   let mi = 0
   let minScale = 1
   let usedMarks = 0
-  for (let guard = 0; g.end - y0 > 1 && guard < 500; guard++) {
+  // 끝에 몇 px 만 남았고 비어 있으면(줄여 담은 큰 그림 아래 등) 빈 쪽을 만들지 않아요
+  const more = () => g.end - y0 > 1 && !(g.end - y0 <= 4 && blank(g, y0, g.end))
+  for (let guard = 0; more() && guard < SECTION_GUARD; guard++) {
     // 이 쪽 맨 위에 머리글 줄을 다시 그리면 그만큼 덜 담아요
     const head = headAt(g, y0)
     const headH = head ? head.bottom - head.top : 0
@@ -376,16 +450,16 @@ function planSection(g: SectionGeo, o: Options, pages: Slice[]): { minScale: num
       usedMarks++
     } else if (g.end - y0 <= cap + 1) cut = g.end
     else {
-      cut = cutBefore(g, y0, y0 + cap)
+      cut = cutBefore(g, y0, cap)
       if (cut === y0 + cap && atomAt(g.atoms, cut)) forced = true
     }
     if (cut <= y0 + 0.5) cut = Math.min(g.end, y0 + cap)
-    else if (cut < g.end) cut = Math.max(y0 + 1, snapToRowTop(g, y0, cut))
+    else if (cut < g.end) cut = Math.min(g.end, afterTableBorder(g, Math.max(y0 + 1, snapToRowTop(g, y0, cut))))
     pages.push(fit === undefined ? { section: g.section, top: y0, bottom: cut } : { section: g.section, top: y0, bottom: cut, fit })
     minScale = Math.min(minScale, g.bodyH / Math.max(g.bodyH, Math.min(cut - y0, fit ?? Infinity) + headH))
     y0 = cut
   }
-  return { minScale, usedMarks, forced }
+  return { minScale, usedMarks, forced, truncated: more() }
 }
 
 function planAll(geos: SectionGeo[], o: Options): Plan {
@@ -393,13 +467,15 @@ function planAll(geos: SectionGeo[], o: Options): Plan {
   let minScale = 1
   let usedMarks = 0
   let forced = false
+  let truncated = false
   for (const g of geos) {
     const r = planSection(g, o, pages)
     minScale = Math.min(minScale, r.minScale)
     usedMarks += r.usedMarks
     forced ||= r.forced
+    truncated ||= r.truncated
   }
-  return { pages, minScale, matched: null, usedMarks, forced, cap: o.cap, useMarks: o.useMarks }
+  return { pages, minScale, matched: null, usedMarks, forced, truncated, cap: o.cap, useMarks: o.useMarks }
 }
 
 /** 한 쪽에 담는 양(1 = 쪽 높이 그대로)을 바꿔 가며 해 보는 순서 */
@@ -410,12 +486,41 @@ const CAPS = [1, 1.03, 0.97, 1.06, 0.94, 1.1, 0.9, 1.15, 0.86, 1.2, 0.82, 1.25]
  * 못 맞추면 기본 계획(쪽 높이 그대로 + 워드 쪽 넘김 자리)을 써요.
  */
 export function planPages(geos: SectionGeo[], wordPages: number | null): Plan {
+  const plan = searchPlan(geos, wordPages)
+  if (!plan.matched || wordPages === null || wordPages < 2) return plan
+  // 마지막 쪽에 글 몇 줄만 넘어갔는데 문서 끝이 빈 문단이면: 워드는 보통 그 몇 줄을 앞 쪽에 (살짝 빠듯하게) 다 담고
+  // 표 뒤의 빈 문단만 다음 쪽으로 넘겨서 마지막 쪽이 비어요. 앞 쪽에 다 들어가면 그렇게 나눠요 (쪽수는 같아요)
+  const n = plan.pages.length
+  const g = geos[geos.length - 1]
+  const last = plan.pages[n - 1]
+  const prev = plan.pages[n - 2]
+  if (!prev || last.section !== g.section || prev.section !== g.section || prev.fit !== undefined) return plan
+  const lastInk = g.ink.length ? g.ink[g.ink.length - 1][1] : g.bodyTop
+  const tail = Math.min(g.end, afterTableBorder(g, lastInk + 0.5))
+  const inkOnLast = g.ink.reduce((sum, [a, b]) => sum + Math.max(0, Math.min(b, last.bottom) - Math.max(a, last.top)), 0)
+  if (g.end - tail < 8 || inkOnLast <= 0 || inkOnLast > g.bodyH * 0.2 || tail <= last.top) return plan
+  // 워드는 글이 있는 쪽 첫 줄에 쪽 넘김 표시를 남겨요. 앞 쪽 뒤에 표시가 있으면 워드의 마지막 쪽에도 글이 있었던 거예요.
+  // 표시가 하나도 없는 문서는 알 수 없으니 그대로 둬요
+  if (g.marks.length === 0 || g.marks.some((m) => m.y > prev.top + 2)) return plan
+  const head = headAt(g, prev.top)
+  const need = tail - prev.top + (head ? head.bottom - head.top : 0)
+  const scale = g.bodyH / Math.max(g.bodyH, need)
+  if (scale < 0.94) return plan
+  return {
+    ...plan,
+    pages: [...plan.pages.slice(0, n - 2), { section: g.section, top: prev.top, bottom: tail }, { section: g.section, top: tail, bottom: g.end }],
+    minScale: Math.min(plan.minScale, scale),
+  }
+}
+
+function searchPlan(geos: SectionGeo[], wordPages: number | null): Plan {
   const hasMarks = geos.some((g) => g.marks.length > 0)
   const base = planAll(geos, { cap: 1, useMarks: hasMarks })
   if (wordPages === null) return base
   if (base.pages.length === wordPages) return { ...base, matched: true }
-  for (const cap of CAPS) {
-    for (const useMarks of hasMarks ? [true, false] : [false]) {
+  // 워드의 쪽 넘김 자리를 따르는 계획을 먼저 다 해 봐요 (담는 양을 조금 바꾸는 게 쪽 넘김 자리를 버리는 것보다 워드에 가까워요)
+  for (const useMarks of hasMarks ? [true, false] : [false]) {
+    for (const cap of CAPS) {
       const p = planAll(geos, { cap, useMarks })
       if (p.pages.length === wordPages) return { ...p, matched: true }
     }

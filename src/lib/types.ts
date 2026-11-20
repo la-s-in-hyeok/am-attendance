@@ -152,15 +152,22 @@ export type SaveNoteResult = { ok: true; version: number; updatedAt: string } | 
 
 /* ───────────── 목장보고서 (매주 목장마다 PDF 하나) ───────────── */
 
-/** 한 목장이 낸 보고서 (서버에는 변환된 PDF 만 있어요) */
+/**
+ * 한 목장이 낸 보고서 (서버에는 변환된 PDF 만 있어요).
+ * 낸 보고서는 낸 사람(올린 휴대폰·브라우저)만 열어 볼 수 있어요.
+ * 남이 낸 보고서는 '냈다'는 것(쪽수·낸 시각)만 오고, 경로·파일 이름·크기는 서버가 보내지 않아요.
+ */
 export interface ReportFile {
   groupId: string
-  /** 저장소 안 경로 (무작위 이름이라 추측할 수 없어요) */
-  path: string
-  /** 올린 원래 파일 이름 (예: '사랑목장 보고서.hwp') */
-  fileName: string
+  /** 이 기기에서 낸 보고서인지 (true 일 때만 path·fileName·sizeBytes 가 있어요) */
+  mine: boolean
+  /** 저장소 안 경로 (무작위 이름이라 추측할 수 없어요). 내 보고서만 */
+  path?: string
+  /** 올린 원래 파일 이름 (예: '사랑목장 보고서.hwp'). 내 보고서만 */
+  fileName?: string
+  /** 내 보고서만 */
+  sizeBytes?: number
   pages: number
-  sizeBytes: number
   uploadedAt: string
 }
 

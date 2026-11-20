@@ -19,6 +19,7 @@ import { parseNotice } from '../lib/push'
 import { addDays, todayKST } from '../lib/dates'
 import { newId } from '../lib/id'
 import { deleteReportBlobs, getReportBlob, listReportPaths, putReportBlob } from './reportsLocalStore'
+import { dateOfPath, ensureOwner, ownerFor, ownersFor } from './reportOwners'
 
 /**
  * 체험 모드: 이 브라우저의 localStorage 에만 저장한다.
@@ -38,13 +39,29 @@ const REPORTS_KEY = `${KEY}:reports`
 const REPORT_MAX_BYTES = 45 * 1024 * 1024
 /** 이 날수보다 오래된 주의 보고서는 마감할 때 정리해요 (서버와 같게 1년) */
 const REPORT_KEEP_DAYS = 371
+/** 담당 비밀번호: 10분 안에 서로 다른 틀린 값을 이만큼 넣으면 잠시 막아요 (서버와 같게) */
+const PIN_LIMIT = 10
+const PIN_WINDOW_MS = 10 * 60_000
+
+/** 체험 모드에 저장한 보고서 한 개 */
+interface StoredReportFile {
+  groupId: string
+  date: ISODate
+  path: string
+  fileName: string
+  pages: number
+  sizeBytes: number
+  uploadedAt: string
+  /** 낸 기기 주인 열쇠의 지문 (서버의 owner_hash 와 같은 역할). 없으면 아무의 것도 아니에요 */
+  ownerHash?: string
+}
 
 /** 체험 모드에 저장한 목장보고서 목록 (localStorage `${REPORTS_KEY}`) */
 interface StoredReports {
   /** 주일 → 마감 시각 (null = 마감 전) */
   weeks: Record<ISODate, { closedAt: string | null }>
   /** key = `${date}|${groupId}` */
-  files: Record<string, ReportFile & { date: ISODate }>
+  files: Record<string, StoredReportFile>
 }
 
 /** 체험 모드에 저장한 일정 (지운 일정도 30일 동안 남겨 둬요) */
@@ -74,6 +91,8 @@ interface LocalData {
   events?: Record<string, StoredEvent>
   /** 2027년 seed 일정을 넣었는지 (다 지워도 다시 넣지 않도록) */
   calendarSeeded?: boolean
+  /** 보고서 담당 비밀번호 (없으면 처음 값 0000. 서버와 같게) */
+  reportPin?: string
 }
 
 const SCOPES: ChangeScope[] = ['roster', 'attendance', 'notes', 'status', 'calendar', 'reports']
@@ -86,7 +105,7 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
  * code: 'invalid' | 'not_found' | 'too_big' | 'quota'
  */
 class LocalError extends Error {
-  readonly kind: 'invalid' | 'conflict' | 'server'
+  readonly kind: 'invalid' | 'conflict' | 'server' | 'locked'
   readonly code: string
   constructor(kind: LocalError['kind'], message: string, code: string) {
     super(message)
@@ -148,6 +167,38 @@ function removeNote(eventId: string) {
 const closedError = () => new LocalError('conflict', '이미 마감됐어요. 더 올리거나 지울 수 없어요', 'closed')
 const noGroupError = () => new LocalError('conflict', '목장 정보가 바뀌었어요. 새로고침한 뒤 다시 해 주세요.', 'no_group')
 const reportGoneError = () => new LocalError('conflict', '이미 지워진 보고서예요. 새로고침한 뒤 다시 확인해 주세요.', 'not_found')
+const notOwnerError = () => new LocalError('conflict', '다른 사람이 낸 보고서예요. 낸 사람만 바꾸거나 지울 수 있어요', 'not_owner')
+const badPinError = () => new LocalError('invalid', '담당 비밀번호가 맞지 않아요', 'bad_pin')
+const pinLockedError = () => new LocalError('locked', '비밀번호를 여러 번 틀려서 잠시 막혔어요. 10분 뒤에 다시 해 주세요', 'pin_locked')
+const pinUnsetError = () =>
+  new LocalError(
+    'invalid',
+    "아직 보고서 담당 비밀번호를 정하지 않았어요. 보고서를 걷는 사람이 관리 탭의 '목장보고서 담당 비밀번호'에서 먼저 정해 주세요.",
+    'pin_unset',
+  )
+const PIN_RE = /^[0-9]{4,8}$/
+/** 담당 비밀번호 처음(임시) 값 */
+const DEFAULT_REPORT_PIN = '0000'
+
+/** 주인 열쇠 → 지문 (서버처럼 sha256 16진수). 이 브라우저가 sha256 을 못 쓰면(http 주소 등) 열쇠를 그대로 써요 (체험 모드라 괜찮아요) */
+async function ownerHash(owner: string): Promise<string> {
+  try {
+    const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(owner))
+    return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  } catch {
+    return `raw:${owner}`
+  }
+}
+
+async function ownerHashes(owners: string[]): Promise<Set<string>> {
+  return new Set(await Promise.all(owners.map(ownerHash)))
+}
+
+/** 저장된 보고서 → 앱이 쓰는 모양 (내 것만 경로·파일 이름·크기) */
+function toReportFile(f: StoredReportFile, mine: boolean): ReportFile {
+  const base = { groupId: f.groupId, pages: f.pages, uploadedAt: f.uploadedAt }
+  return mine ? { ...base, mine: true, path: f.path, fileName: f.fileName, sizeBytes: f.sizeBytes } : { ...base, mine: false }
+}
 
 function readReports(): StoredReports {
   try {
@@ -612,11 +663,14 @@ export class LocalBackend implements Backend {
   /* ── 목장보고서 ──
    * 목록은 localStorage, PDF 는 이 브라우저의 IndexedDB (못 쓰면 메모리: 새로고침하면 사라져요).
    * 서버(am_report_*)와 같은 규칙: 마감된 주는 올리기·지우기 막기, 없거나 지운 목장은 막기,
-   * 다시 올리면 예전 파일은 지우기, 마감할 때 1년 지난 주 정리.
+   * 다시 올리면 예전 파일은 지우기, 마감할 때 1년 지난 주 정리,
+   * 낸 사람(주인 열쇠)만 열고·바꾸고·지우기, 마감·마감 풀기·합친 PDF·남의 것 지우기는 담당 비밀번호.
    */
 
   /** 이 탭 안의 보고서 작업은 하나씩 (마감과 올리기가 엇갈리지 않도록) */
   private reportQueue: Promise<unknown> = Promise.resolve()
+  /** 틀린 담당 비밀번호 기록 (서버처럼 10분 안에 서로 다른 틀린 값 10번이면 잠시 막아요. 이 탭 메모리에만) */
+  private pinFails: { pin: string; at: number }[] = []
 
   private inReportQueue<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.reportQueue.then(fn)
@@ -630,15 +684,37 @@ export class LocalBackend implements Backend {
     return new Map(groups.map((g, i) => [g.id, i]))
   }
 
+  /** 정해 둔 담당 비밀번호 (아직 안 바꿨으면 처음 값 0000) */
+  private savedPin(): string | null {
+    const p = this.data.reportPin ?? DEFAULT_REPORT_PIN
+    return typeof p === 'string' && PIN_RE.test(p) ? p : null
+  }
+
+  /** 담당 비밀번호 확인 (서버의 am__verify_admin 과 같게). 틀리거나 막혔으면 오류 */
+  private verifyPin(pin: string | null | undefined) {
+    const now = Date.now()
+    this.pinFails = this.pinFails.filter((f) => now - f.at < PIN_WINDOW_MS)
+    if (new Set(this.pinFails.map((f) => f.pin)).size >= PIN_LIMIT) throw pinLockedError()
+    this.reload()
+    const want = this.savedPin()
+    // 아직 정하지 않았으면 아무 값도 통하지 않아요 (틀린 기록도 남기지 않아요. 서버와 같게)
+    if (!want) throw pinUnsetError()
+    if (typeof pin === 'string' && PIN_RE.test(pin) && pin === want) return
+    const tried = (pin ?? '').slice(0, 64)
+    if (!this.pinFails.some((f) => f.pin === tried)) this.pinFails.push({ pin: tried, at: now })
+    throw badPinError()
+  }
+
   async fetchReports(date: ISODate): Promise<ReportWeek> {
     await this.ready
     this.reload()
     const r = readReports()
     const order = this.groupOrder()
+    const mine = await ownerHashes(ownersFor(date))
     const files = Object.values(r.files)
       .filter((f) => f.date === date)
       .sort((a, b) => (order.get(a.groupId) ?? 1e9) - (order.get(b.groupId) ?? 1e9) || a.groupId.localeCompare(b.groupId))
-      .map(({ date: _d, ...f }) => ({ ...f }))
+      .map((f) => toReportFile(f, !!f.ownerHash && mine.has(f.ownerHash)))
     return { date, closedAt: r.weeks[date]?.closedAt ?? null, files }
   }
 
@@ -656,29 +732,36 @@ export class LocalBackend implements Backend {
       if (!g || g.archived) throw noGroupError()
       // 마감된 주, 1년 넘게 지난 주(마감할 때 정리되는 주)는 더 못 올려요 (서버와 같게)
       if (date < addDays(todayKST(), -REPORT_KEEP_DAYS) || readReports().weeks[date]?.closedAt) throw closedError()
+      const key = `${date}|${groupId}`
+      const hash = await ownerHash(ensureOwner(date, groupId))
+      // 다른 사람이 낸 보고서(열쇠 없는 예전 것 포함)는 바꿀 수 없어요
+      const before = readReports().files[key]
+      if (before && before.ownerHash !== hash) throw notOwnerError()
 
       const path = `reports/${date}/${groupId.toLowerCase()}/${newId()}.pdf`
       const kept = await putReportBlob(path, pdf)
       if (!kept) console.info('[체험 모드] 이 브라우저에 파일을 저장하지 못해서 메모리에만 뒀어요. 새로고침하면 사라져요.')
 
-      // 저장하는 사이 다른 탭이 마감했을 수 있어서 목록을 새로 읽어요
+      // 저장하는 사이 다른 탭이 마감했거나 먼저 냈을 수 있어서 목록을 새로 읽어요
       const r = readReports()
-      if (r.weeks[date]?.closedAt) {
+      const cur = r.files[key]
+      if (r.weeks[date]?.closedAt || (cur && cur.ownerHash !== hash)) {
         await deleteReportBlobs([path])
-        throw closedError()
+        throw r.weeks[date]?.closedAt ? closedError() : notOwnerError()
       }
-      const key = `${date}|${groupId}`
-      const old = r.files[key]?.path ?? null
+      const old = cur?.path ?? null
       const name = (fileName ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 200) || '보고서.pdf'
-      const file: ReportFile = {
+      const stored: StoredReportFile = {
         groupId,
+        date,
         path,
         fileName: name,
         pages: Math.max(0, Math.round(pages) || 0),
         sizeBytes: pdf.byteLength,
         uploadedAt: new Date().toISOString(),
+        ownerHash: hash,
       }
-      r.files[key] = { ...file, date }
+      r.files[key] = stored
       try {
         writeReports(r)
       } catch (e) {
@@ -687,46 +770,54 @@ export class LocalBackend implements Backend {
       }
       if (old && old !== path) await deleteReportBlobs([old])
       this.channel?.postMessage('reports')
-      return { ...file }
+      return toReportFile(stored, true)
     })
   }
 
-  deleteReport(date: ISODate, groupId: string): Promise<void> {
+  deleteReport(date: ISODate, groupId: string, adminPin?: string): Promise<void> {
     return this.inReportQueue(async () => {
+      if (adminPin) this.verifyPin(adminPin)
       const r = readReports()
       if (r.weeks[date]?.closedAt) throw closedError()
       const key = `${date}|${groupId}`
-      const old = r.files[key]?.path
-      if (!old) return
+      const cur = r.files[key]
+      if (!cur) return
+      if (!adminPin) {
+        const owner = ownerFor(date, groupId)
+        if (!owner || !cur.ownerHash || cur.ownerHash !== (await ownerHash(owner))) throw notOwnerError()
+      }
       delete r.files[key]
       writeReports(r)
-      await deleteReportBlobs([old])
+      await deleteReportBlobs([cur.path])
       this.channel?.postMessage('reports')
     })
   }
 
-  async downloadReports(paths: string[]): Promise<{ path: string; bytes: Uint8Array | null }[]> {
-    const known = new Set(Object.values(readReports().files).map((f) => f.path))
+  async downloadAllReports(date: ISODate, adminPin: string): Promise<{ groupId: string; bytes: Uint8Array | null }[]> {
+    this.verifyPin(adminPin)
+    const files = Object.values(readReports().files).filter((f) => f.date === date)
     return Promise.all(
-      paths.map(async (path) => {
-        if (!known.has(path)) return { path, bytes: null }
+      files.map(async (f) => {
         try {
-          return { path, bytes: await getReportBlob(path) }
+          return { groupId: f.groupId, bytes: await getReportBlob(f.path) }
         } catch {
-          return { path, bytes: null }
+          return { groupId: f.groupId, bytes: null }
         }
       }),
     )
   }
 
   /**
-   * 체험 모드: blob: 주소를 돌려줘요. 다 쓰면 부르는 쪽이 URL.revokeObjectURL 로 꼭 풀어 주세요 (메모리).
+   * 체험 모드: blob: 주소를 돌려줘요 (이 기기가 낸 보고서만). 다 쓰면 부르는 쪽이 URL.revokeObjectURL 로 꼭 풀어 주세요 (메모리).
    * blob 주소에는 파일 이름을 붙일 수 없어서 downloadName 은 쓰지 않아요
    * (이름을 붙여 받으려면 <a download="이름"> 으로 여세요).
    */
   async reportFileUrl(path: string): Promise<string> {
-    const known = Object.values(readReports().files).some((f) => f.path === path)
-    if (!known) throw reportGoneError()
+    const f = Object.values(readReports().files).find((x) => x.path === path)
+    const date = dateOfPath(path)
+    const mine = date ? await ownerHashes(ownersFor(date)) : new Set<string>()
+    // 남이 낸 보고서는 경로를 알아도 열 수 없어요 (서버와 같게)
+    if (!f || !f.ownerHash || !mine.has(f.ownerHash)) throw reportGoneError()
     const bytes = await getReportBlob(path)
     if (!bytes) {
       throw new LocalError('server', '체험 모드라 이 기기에서 파일이 사라졌어요 (새로고침하면 지워질 수 있어요). 다시 올려 주세요.', 'gone')
@@ -735,9 +826,10 @@ export class LocalBackend implements Backend {
     return URL.createObjectURL(blob)
   }
 
-  closeReports(date: ISODate): Promise<string> {
+  closeReports(date: ISODate, adminPin: string): Promise<string> {
     return this.inReportQueue(async () => {
       if (dayNumber(date) === null) throw invalidError()
+      this.verifyPin(adminPin)
       const r = readReports()
       const closedAt = r.weeks[date]?.closedAt ?? new Date().toISOString()
       r.weeks[date] = { closedAt }
@@ -774,13 +866,34 @@ export class LocalBackend implements Backend {
     })
   }
 
-  reopenReports(date: ISODate): Promise<void> {
+  reopenReports(date: ISODate, adminPin: string): Promise<void> {
     return this.inReportQueue(async () => {
+      this.verifyPin(adminPin)
       const r = readReports()
       if (!r.weeks[date]?.closedAt) return
       r.weeks[date] = { closedAt: null }
       writeReports(r)
       this.channel?.postMessage('reports')
     })
+  }
+
+  async checkReportPin(pin: string): Promise<void> {
+    this.verifyPin(pin)
+  }
+
+  async reportPinIsSet(): Promise<boolean> {
+    this.reload()
+    return this.savedPin() !== null
+  }
+
+  async changeReportPin(current: string | null, next: string): Promise<void> {
+    if (!PIN_RE.test(next)) {
+      throw new LocalError('invalid', '새 담당 비밀번호는 숫자 4~8자리로 정해 주세요.', 'invalid_pin')
+    }
+    this.reload()
+    // 처음 정할 때는 지금 비밀번호가 없어요 (서버와 같게)
+    if (this.savedPin()) this.verifyPin(current)
+    this.data.reportPin = next
+    this.persist()
   }
 }

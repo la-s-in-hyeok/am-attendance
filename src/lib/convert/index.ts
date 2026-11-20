@@ -43,7 +43,11 @@ export function convertToPdf(file: File, onProgress?: (p: ConvertProgress) => vo
     () => run(file, onProgress),
     () => run(file, onProgress),
   )
-  queue = job.catch(() => undefined)
+  // 끝난 결과(PDF·미리보기)를 큐가 붙잡지 않게 값은 버려요
+  queue = job.then(
+    () => undefined,
+    () => undefined,
+  )
   return job
 }
 

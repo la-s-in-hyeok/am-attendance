@@ -65,3 +65,59 @@ export function dropStaleNoteEntry() {
   delete rest.amNote
   history.replaceState(rest, '')
 }
+
+/*
+ * 날짜를 눌러 연 '그날 보기'(달력이 작아지고 아래에 그날 일정)의 '뒤로 가기' 기록.
+ * 열 때 { amDay: 번호 } 를 하나 쌓아서 휴대폰 뒤로 가기가 그날 보기만 닫게 해요.
+ * 그 위에 회의록({ amNote })·창({ amSheet }) 기록이 쌓여도 amDay 는 그대로 이어져요 (모두 history.state 를 펼쳐서 쌓아요).
+ */
+
+let daySeq = 0
+/** 닫혔지만 기록을 아직 치우지 않은 그날 보기 */
+let dayPending: number | null = null
+
+/** 그날 보기를 열 때: 기록을 하나 쌓고 번호를 돌려줘요 (남아 있는 기록이 있으면 그 자리를 이어 써요) */
+export function pushDayEntry(): number {
+  const token = ++daySeq
+  const st = (history.state ?? {}) as Record<string, unknown>
+  dayPending = null
+  if (st.amDay !== undefined) history.replaceState({ ...st, amDay: token }, '')
+  else history.pushState({ ...st, amDay: token }, '')
+  return token
+}
+
+/** 지금 기록이 이 그날 보기 것인지 (위에 회의록·창 기록이 있어도 같은 그날 보기면 true) */
+export function isDayEntry(token: number): boolean {
+  return history.state?.amDay === token
+}
+
+/** 그날 보기를 닫을 때(뒤로 가기로 닫힌 게 아니면): 쌓아 둔 기록을 치워요 */
+export function popDayEntry(token: number) {
+  dayPending = token
+  setTimeout(() => {
+    if (dayPending !== token) return
+    dayPending = null
+    dayBackWhenClear(token, 0)
+  }, 0)
+}
+
+function dayBackWhenClear(token: number, tries: number) {
+  const st = history.state as Record<string, unknown> | null
+  if (st?.amDay !== token) return
+  if (st.amNote === undefined && st.amSheet === undefined) {
+    history.back()
+    return
+  }
+  // 위에 회의록·창 기록이 아직 있으면 그것이 먼저 빠질 때까지 기다려요
+  if (tries > 8) return
+  afterHistorySettles(() => dayBackWhenClear(token, tries + 1))
+}
+
+/** 새로고침 뒤에 남아 있는 그날 보기 기록 지우기 */
+export function dropStaleDayEntry() {
+  const st = history.state as Record<string, unknown> | null
+  if (!st || st.amDay === undefined || dayPending !== null) return
+  const rest = { ...st }
+  delete rest.amDay
+  history.replaceState(rest, '')
+}

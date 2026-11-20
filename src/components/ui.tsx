@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type ButtonHTMLAttributes } from 'react'
+import { createPortal } from 'react-dom'
 import type { Service, Status } from '../lib/types'
 import { STATUS_LABEL } from '../lib/types'
 import { useStore } from '../store'
@@ -139,6 +140,12 @@ export function Card({ children, className = '', ...rest }: React.HTMLAttributes
 
 let sheetSeq = 0
 const newSheetToken = () => ++sheetSeq
+/** 창이 열린 순서 (닫히는 창의 복사본을 어느 창 아래에 둘지 정할 때 써요) */
+let layerSeq = 0
+function useLayerSeq(): number {
+  const [seq] = useState(() => ++layerSeq)
+  return seq
+}
 /** 지금 열려 있는 창들 (먼저 열린 순서) */
 const openSheets: number[] = []
 /** 닫혔지만 '뒤로 가기' 기록을 아직 치우지 않은 창 */
@@ -154,28 +161,108 @@ function unlockScroll() {
   if (scrollLocks === 0) document.body.style.overflow = ''
 }
 
-export function Sheet({
-  open,
-  onClose,
-  title,
-  children,
-  footer,
-}: {
-  open: boolean
-  onClose: () => void
-  title?: ReactNode
-  children: ReactNode
-  footer?: ReactNode
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const titleId = useId()
+/** iOS 창이 뜰 때와 같은 곡선 (index.css 의 --ease-ios) */
+export const EASE_IOS = 'cubic-bezier(0.32, 0.72, 0, 1)'
+
+/** '동작 줄이기'를 켠 사람 (움직임 없이 바로 보여 줘요) */
+export function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+}
+
+/** 손가락으로 쓰는 기기 (휴대폰·태블릿): 창이 올라오는 중에 키보드가 튀어나오지 않게 입력칸에 바로 초점을 두지 않아요 */
+export function isTouchDevice(): boolean {
+  return typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches
+}
+
+/**
+ * 창 안의 내용이 바뀔 때(예: 비밀번호 → 확인) 높이가 툭 바뀌지 않고 부드럽게 늘고 줄게 해요.
+ * step 이 바뀔 때마다 앞 높이에서 새 높이로 움직여요.
+ */
+export function useSmoothHeight(ref: { current: HTMLElement | null }, step: unknown) {
+  const last = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const now = el.getBoundingClientRect().height
+    const before = last.current
+    last.current = now
+    if (before === null || Math.abs(before - now) < 1 || prefersReducedMotion() || typeof el.animate !== 'function') return
+    el.animate([{ height: `${before}px`, overflow: 'hidden' }, { height: `${now}px`, overflow: 'hidden' }], { duration: 340, easing: EASE_IOS })
+  }, [ref, step])
+}
+
+/** 넓은 화면(창이 가운데에 뜨는 폭: 640px 이상) */
+function isWide(): boolean {
+  return !!window.matchMedia?.('(min-width: 40rem)').matches
+}
+
+type ExitFrom = { transform: string; opacity: string }
+type ExitSpec = { keyframes: Keyframe[]; duration: number; easing: string }
+
+/**
+ * 창이 닫힐 때 부드럽게 사라지게 해요.
+ * React 가 창을 지우기 바로 전에 그 모습을 복사해서 body 에 붙이고, 움직임이 끝나면 치워요.
+ * 그래서 open 을 false 로 바꾸든 창을 띄운 쪽이 창을 통째로 지우든 똑같이 닫혀요. ('뒤로 가기' 기록·초점은 진짜 창이 바로 정리해요)
+ * 복사본은 누를 수 없고(inert) 화면 읽기 프로그램도 건너뛰어요.
+ * spec: [data-exit="이름"] 이 붙은 부분마다 어떻게 사라질지 (from = 닫히기 직전의 모양. 끌던 중이면 그 자리)
+ */
+function playExit(root: HTMLElement | null, spec: (part: string, from: ExitFrom) => ExitSpec | null) {
+  if (!root || prefersReducedMotion() || typeof root.animate !== 'function') return
+  const parts = Array.from(root.querySelectorAll<HTMLElement>('[data-exit]'))
+  const from = parts.map((el): ExitFrom => {
+    const cs = getComputedStyle(el)
+    return { transform: cs.transform && cs.transform !== 'none' ? cs.transform : 'translate3d(0, 0, 0)', opacity: cs.opacity || '1' }
+  })
+  const scrolls = Array.from(root.querySelectorAll<HTMLElement>('[data-exit-scroll]'), (el) => el.scrollTop)
+  const values = Array.from(root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select'), (el) => el.value)
+  const ghost = root.cloneNode(true) as HTMLElement
+  queueMicrotask(() => {
+    // 아직 화면에 붙어 있으면 진짜로 닫힌 게 아니에요 (React 개발 모드가 한 번 더 실행해 보는 것)
+    if (root.isConnected) return
+    ghost.removeAttribute('role')
+    ghost.removeAttribute('aria-modal')
+    ghost.removeAttribute('aria-labelledby')
+    ghost.setAttribute('aria-hidden', 'true')
+    ghost.inert = true
+    ghost.classList.add('ui-ghost')
+    ghost.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
+    ghost.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select').forEach((el, i) => {
+      if (values[i] !== undefined) el.value = values[i]
+    })
+    // 이 창보다 나중에 열린 창(예: 비밀번호 창을 닫자마자 뜨는 확인 창)보다는 아래에 둬요.
+    // 그래야 사라지는 창이 새 창을 덮지 않아요. 먼저 열려 있던 창 위에서는 그대로 미끄러져 내려가요
+    const seq = Number(root.dataset.layer) || 0
+    const later = Array.from(document.body.children).find((el) => el instanceof HTMLElement && Number(el.dataset.layer) > seq)
+    document.body.insertBefore(ghost, later ?? null)
+    ghost.querySelectorAll<HTMLElement>('[data-exit-scroll]').forEach((el, i) => {
+      el.scrollTop = scrolls[i] ?? 0
+    })
+    const anims: Animation[] = []
+    ghost.querySelectorAll<HTMLElement>('[data-exit]').forEach((el, i) => {
+      const s = from[i] && spec(el.dataset.exit ?? '', from[i])
+      if (s) anims.push(el.animate(s.keyframes, { duration: s.duration, easing: s.easing, fill: 'forwards' }))
+    })
+    let gone = false
+    const remove = () => {
+      if (gone) return
+      gone = true
+      ghost.remove()
+    }
+    if (!anims.length) return remove()
+    Promise.all(anims.map((a) => a.finished)).then(remove, remove)
+    // 탭이 숨겨져서 움직임이 멈춰도 복사본이 남지 않게
+    setTimeout(remove, 1200)
+  })
+}
+
+/**
+ * 창 공통 동작: Esc 로 닫기, 뒤 화면 스크롤 잠그기, 휴대폰 '뒤로 가기'로 이 창만 닫기.
+ * 창이 화면에 있는 동안(마운트) 한 번만 실행돼요.
+ */
+function useModalLayer(onClose: () => void) {
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
-  /** 휴대폰 키보드가 올라와 보이는 화면이 줄었을 때, 창을 그 안에 맞춘다 */
-  const [fit, setFit] = useState<{ top: number; height: number } | null>(null)
-
   useEffect(() => {
-    if (!open) return
     const token = newSheetToken()
     // 여러 창이 겹쳐 있으면 Esc 는 맨 위 창만 닫는다
     const onKey = (e: KeyboardEvent) => {
@@ -217,11 +304,12 @@ export function Sheet({
         if (history.state?.amSheet === token) history.back()
       }, 0)
     }
-  }, [open])
+  }, [])
+}
 
-  // PC 키보드 사용: 열리면 창 안으로 초점을 옮기고, 닫히면 원래 자리로 돌려준다
+/** PC 키보드 사용: 열리면 창 안으로 초점을 옮기고, 닫히면 원래 자리로 돌려준다 */
+function useFocusInside(ref: { current: HTMLElement | null }) {
   useEffect(() => {
-    if (!open) return
     const prev = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const panel = ref.current
     if (panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true })
@@ -229,11 +317,56 @@ export function Sheet({
       // 입력칸으로 돌아가면 휴대폰 키보드가 다시 튀어나오므로 버튼일 때만 돌려준다
       if (prev?.isConnected && !prev.matches('input, textarea, select, [contenteditable]')) prev.focus({ preventScroll: true })
     }
-  }, [open])
+  }, [ref])
+}
+
+export function Sheet({
+  open,
+  ...rest
+}: {
+  open: boolean
+  onClose: () => void
+  title?: ReactNode
+  children: ReactNode
+  footer?: ReactNode
+}) {
+  // 닫힐 때의 움직임은 SheetFrame 이 사라지면서 남기는 복사본이 맡아요 (playExit)
+  return open ? <SheetFrame {...rest} /> : null
+}
+
+function SheetFrame({ onClose, title, children, footer }: { onClose: () => void; title?: ReactNode; children: ReactNode; footer?: ReactNode }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  const layer = useLayerSeq()
+  /** 휴대폰 키보드가 올라와 보이는 화면이 줄었을 때, 창을 그 안에 맞춘다 */
+  const [fit, setFit] = useState<{ top: number; height: number } | null>(null)
+
+  useModalLayer(onClose)
+  useFocusInside(ref)
+
+  // 닫힐 때: 휴대폰은 아래로 미끄러져 내려가고, PC 는 살짝 가라앉으며 흐려져요
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    return () =>
+      playExit(root, (part, from) => {
+        const wide = isWide()
+        if (part === 'dim') return { keyframes: [{ opacity: from.opacity }, { opacity: 0 }], duration: wide ? 180 : 320, easing: EASE_IOS }
+        if (wide)
+          return {
+            keyframes: [
+              { opacity: from.opacity, transform: from.transform },
+              { opacity: 0, transform: 'translate3d(0, 8px, 0) scale(0.98)' },
+            ],
+            duration: 160,
+            easing: 'cubic-bezier(0.4, 0, 1, 1)',
+          }
+        return { keyframes: [{ transform: from.transform }, { transform: 'translate3d(0, 100%, 0)' }], duration: 320, easing: EASE_IOS }
+      })
+  }, [])
 
   // 휴대폰 키보드: 보이는 영역(visualViewport)에 맞춰 창을 올리고, 입력칸이 가려지지 않게 한다
   useEffect(() => {
-    if (!open) return
     const vv = window.visualViewport
     if (!vv) return
     let raf = 0
@@ -265,44 +398,312 @@ export function Sheet({
       cancelAnimationFrame(raf)
       vv.removeEventListener('resize', schedule)
       vv.removeEventListener('scroll', schedule)
-      setFit(null)
     }
-  }, [open])
+  }, [])
 
-  if (!open) return null
+  // body 에 띄워요: 뒤 화면이 작아지는 효과(transform) 안에 갇히지 않게.
   // 파란 띠 안에서 열어도(예: 띠의 알림 버튼) 창 안은 띠 모양·흰 글씨를 물려받지 않게
-  return (
+  return createPortal(
     <OnBandContext.Provider value={false}>
-    <div
-      className="no-print fixed inset-0 z-50 flex items-end justify-center text-ink sm:items-center sm:p-6"
-      style={fit ? { top: fit.top, height: fit.height, bottom: 'auto' } : undefined}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={title ? titleId : undefined}
-    >
-      <div className="anim-fade absolute inset-0 bg-black/40" onClick={onClose} />
       <div
-        ref={ref}
-        tabIndex={-1}
-        style={fit ? { paddingBottom: 0 } : undefined}
-        className={`anim-sheet safe-bottom relative flex w-full flex-col rounded-t-[28px] bg-surface shadow-[var(--shadow-pop)] outline-none sm:max-w-md sm:rounded-[28px] ${
-          fit ? 'max-h-[calc(100%-0.75rem)]' : 'max-h-[88%] sm:max-h-full'
-        }`}
+        ref={rootRef}
+        data-layer={layer}
+        className="no-print fixed inset-0 z-50 flex items-end justify-center text-ink sm:items-center sm:p-6"
+        style={fit ? { top: fit.top, height: fit.height, bottom: 'auto' } : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
       >
-        <div className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-line sm:hidden" />
-        {title && (
-          <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-3 pb-1 sm:pt-5">
-            <h2 id={titleId} className="min-w-0 text-lg leading-snug font-bold [overflow-wrap:anywhere]">
-              {title}
-            </h2>
-            <IconButton icon="x" label="닫기" onClick={onClose} className="-mr-2" />
+        <div data-exit="dim" className="anim-dim absolute inset-0 bg-black/40" onClick={onClose} />
+        <div
+          ref={ref}
+          tabIndex={-1}
+          data-exit="panel"
+          style={fit ? { paddingBottom: 0 } : undefined}
+          className={`anim-sheet safe-bottom relative flex w-full flex-col rounded-t-[28px] bg-surface shadow-[var(--shadow-pop)] outline-none sm:max-w-md sm:rounded-[28px] ${
+            fit ? 'max-h-[calc(100%-0.75rem)]' : 'max-h-[88%] sm:max-h-full'
+          }`}
+        >
+          <div className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-line sm:hidden" />
+          {title && (
+            <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-3 pb-1 sm:pt-5">
+              <h2 id={titleId} className="min-w-0 text-lg leading-snug font-bold [overflow-wrap:anywhere]">
+                {title}
+              </h2>
+              <IconButton icon="x" label="닫기" onClick={onClose} className="-mr-2" />
+            </div>
+          )}
+          <div data-exit-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-2 pb-5">
+            {children}
           </div>
-        )}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-2 pb-5">{children}</div>
-        {footer && <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div>}
+          {footer && <div className="shrink-0 border-t border-line px-5 py-3">{footer}</div>}
+        </div>
       </div>
-    </div>
-    </OnBandContext.Provider>
+    </OnBandContext.Provider>,
+    document.body,
+  )
+}
+
+/* ───────────── 페이지 시트 (iOS 의 '새 일정' 창처럼 화면을 거의 다 덮는 창) ───────────── */
+
+/** 열린 페이지 시트 수와, 뒤 화면을 원래대로 돌리는 타이머 */
+let pageSheets = 0
+let pageSheetTimer = 0
+
+/** 뒤 화면을 살짝 작게·어둡게 (index.css 의 html[data-page-sheet]) */
+function shrinkBackground() {
+  if (pageSheets++ > 0) return
+  window.clearTimeout(pageSheetTimer)
+  const html = document.documentElement
+  const main = document.querySelector<HTMLElement>('#root main')
+  // 지금 화면 맨 위 줄을 기준으로 작아지게 (스크롤해 둔 자리 그대로)
+  if (main) main.style.setProperty('--ps-oy', `${Math.max(0, Math.round(-main.getBoundingClientRect().top))}px`)
+  if (html.dataset.pageSheet !== 'closing') {
+    // 모서리 둥글기가 0 에서부터 자연스럽게 커지도록, 시작 모양을 한 번 그려 두고 바꿔요
+    html.dataset.pageSheet = 'pre'
+    if (main) void getComputedStyle(main).clipPath
+  }
+  html.dataset.pageSheet = 'open'
+}
+
+function restoreBackground() {
+  pageSheets = Math.max(0, pageSheets - 1)
+  if (pageSheets > 0) return
+  const html = document.documentElement
+  html.dataset.pageSheet = 'closing'
+  window.clearTimeout(pageSheetTimer)
+  pageSheetTimer = window.setTimeout(() => {
+    delete html.dataset.pageSheet
+    document.querySelector<HTMLElement>('#root main')?.style.removeProperty('--ps-oy')
+  }, 480)
+}
+
+/** 위로 끌어 올릴 때 고무줄처럼 조금만 따라오게 */
+function rubber(over: number): number {
+  return (over * 28) / (over + 70)
+}
+
+export interface PageSheetProps {
+  open: boolean
+  onClose: () => void
+  title: ReactNode
+  /** 왼쪽 버튼 (기본 '취소') */
+  cancelLabel?: string
+  /** 오른쪽 굵은 버튼 (예: '추가'). 맨 위에 있어서 키보드가 올라와도 가려지지 않아요 */
+  action?: { label: ReactNode; onClick: () => void; disabled?: boolean }
+  children: ReactNode
+}
+
+/**
+ * 페이지 시트: 휴대폰에서는 화면 맨 위 조금 아래까지 덮고(위 모서리 둥글게) 뒤 화면은 살짝 작아지며 어두워져요.
+ * 위쪽 [취소 · 제목 · 추가] 막대를 아래로 끌면 닫혀요. PC 에서는 가운데 창.
+ * 키보드가 올라와도 창은 맨 위에 붙어 있고 안쪽만 스크롤돼요 (창이 들썩이거나 틈이 생기지 않게).
+ */
+export function PageSheet({ open, ...rest }: PageSheetProps) {
+  return open ? <PageSheetFrame {...rest} /> : null
+}
+
+function PageSheetFrame({ onClose, title, cancelLabel = '취소', action, children }: Omit<PageSheetProps, 'open'>) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const kbSpaceRef = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  const layer = useLayerSeq()
+  const [scrolled, setScrolled] = useState(false)
+  /** 끌어서 닫을 때의 빠르기(px/ms): 닫히는 움직임이 손가락 빠르기를 이어받아요 */
+  const flingRef = useRef(0)
+  const drag = useRef<{ id: number; y0: number; base: number; active: boolean; samples: { y: number; t: number }[] } | null>(null)
+
+  useModalLayer(onClose)
+  useFocusInside(panelRef)
+
+  // 열 때 뒤 화면을 작게, 닫힐 때 원래대로 + 창은 아래로 미끄러져 내려가요
+  useLayoutEffect(() => {
+    shrinkBackground()
+    const root = rootRef.current
+    return () => {
+      restoreBackground()
+      playExit(root, (part, from) => {
+        const wide = isWide()
+        if (part === 'dim') return { keyframes: [{ opacity: from.opacity }, { opacity: 0 }], duration: wide ? 180 : 340, easing: EASE_IOS }
+        if (wide)
+          return {
+            keyframes: [
+              { opacity: from.opacity, transform: from.transform },
+              { opacity: 0, transform: 'translate3d(0, 10px, 0) scale(0.98)' },
+            ],
+            duration: 170,
+            easing: 'cubic-bezier(0.4, 0, 1, 1)',
+          }
+        const v = flingRef.current
+        // 빠르게 튕겨 내렸으면 그 빠르기 그대로 이어서 (곡선의 처음 기울기 ≈ 3.2)
+        const left = Math.max(0, (root?.querySelector<HTMLElement>('[data-exit="panel"]')?.offsetHeight ?? 700) - new DOMMatrix(from.transform).m42)
+        const duration = v > 0.3 ? Math.max(160, Math.min(340, (3.2 * left) / v)) : 340
+        return {
+          keyframes: [{ transform: from.transform }, { transform: 'translate3d(0, 100%, 0)' }],
+          duration,
+          easing: v > 0.3 ? 'cubic-bezier(0.25, 0.8, 0.4, 1)' : EASE_IOS,
+        }
+      })
+    }
+  }, [])
+
+  // 아이폰 키보드: 창은 그대로 두고, 키보드에 가려지는 만큼 안쪽 아래에 빈 자리를 둬서 끝까지 스크롤할 수 있게.
+  // (안드로이드는 키보드만큼 화면 높이가 줄어서 창도 저절로 줄어요)
+  // 사파리가 화면을 위로 밀어 올리면(offsetTop) 그만큼 내려서 창 머리가 보이게 해요
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    let raf = 0
+    const update = () => {
+      raf = 0
+      const covered = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      const kb = vv.scale <= 1.01 && covered > 80
+      if (kbSpaceRef.current) kbSpaceRef.current.style.height = kb ? `${Math.round(covered)}px` : ''
+      if (wrapRef.current) wrapRef.current.style.transform = kb && vv.offsetTop > 1 ? `translate3d(0, ${Math.round(vv.offsetTop)}px, 0)` : ''
+    }
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(update)
+    }
+    vv.addEventListener('resize', schedule)
+    vv.addEventListener('scroll', schedule)
+    return () => {
+      cancelAnimationFrame(raf)
+      vv.removeEventListener('resize', schedule)
+      vv.removeEventListener('scroll', schedule)
+    }
+  }, [])
+
+  /* 위쪽 막대를 아래로 끌어서 닫기 (휴대폰 폭에서만) */
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0 || isWide() || drag.current) return
+    drag.current = { id: e.pointerId, y0: e.clientY, base: 0, active: false, samples: [{ y: e.clientY, t: e.timeStamp }] }
+  }
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    const panel = panelRef.current
+    if (!d || e.pointerId !== d.id || !panel) return
+    if (!d.active) {
+      if (Math.abs(e.clientY - d.y0) < 6) return
+      d.active = true
+      e.currentTarget.setPointerCapture(e.pointerId)
+      // 올라오는 중이었으면 그 자리에서 이어서 끌어요
+      const t = getComputedStyle(panel).transform
+      d.base = t && t !== 'none' ? new DOMMatrix(t).m42 : 0
+      d.y0 = e.clientY
+      panel.style.animation = 'none'
+      panel.style.transition = 'none'
+    }
+    const y = d.base + e.clientY - d.y0
+    panel.style.transform = `translate3d(0, ${y >= 0 ? y : -rubber(-y)}px, 0)`
+    d.samples.push({ y: e.clientY, t: e.timeStamp })
+    if (d.samples.length > 6) d.samples.shift()
+  }
+  const onPointerEnd = (e: React.PointerEvent) => {
+    const d = drag.current
+    const panel = panelRef.current
+    if (!d || e.pointerId !== d.id) return
+    drag.current = null
+    if (!d.active || !panel) return
+    const y = d.base + e.clientY - d.y0
+    const first = d.samples[0]
+    const last = d.samples[d.samples.length - 1]
+    const v = last.t > first.t ? (last.y - first.y) / (last.t - first.t) : 0
+    if (e.type === 'pointerup' && y > 0 && (y > panel.offsetHeight * 0.28 || (v > 0.45 && y > 24))) {
+      flingRef.current = Math.max(0, v)
+      onClose()
+      return
+    }
+    // 덜 끌었으면 제자리로 돌아가요
+    panel.style.transition = `transform 0.5s ${EASE_IOS}`
+    panel.style.transform = 'translate3d(0, 0, 0)'
+  }
+
+  return createPortal(
+    <OnBandContext.Provider value={false}>
+      <div
+        ref={rootRef}
+        data-layer={layer}
+        data-page-sheet-root=""
+        className="no-print fixed inset-0 z-50 text-ink"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
+        <div data-exit="dim" className="anim-dim absolute inset-0 bg-black/30 sm:bg-black/40" onClick={onClose} />
+        <div
+          ref={wrapRef}
+          className="pointer-events-none absolute inset-x-0 top-[calc(env(safe-area-inset-top)+18px)] bottom-0 flex justify-center sm:inset-0 sm:items-center sm:p-6"
+        >
+          <div
+            ref={panelRef}
+            tabIndex={-1}
+            data-exit="panel"
+            className="anim-sheet pointer-events-auto relative flex h-full w-full flex-col overflow-hidden rounded-t-[14px] bg-bg shadow-[0_-6px_30px_rgb(0_0_0/0.18)] outline-none sm:h-auto sm:max-h-[min(46rem,100%)] sm:max-w-lg sm:rounded-[20px] sm:shadow-[var(--shadow-pop)]"
+          >
+            {/* 끌어서 닫는 손잡이 + [취소 · 제목 · 추가] */}
+            <div
+              className={`shrink-0 touch-none border-b select-none transition-colors ${scrolled ? 'border-line' : 'border-transparent'}`}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerEnd}
+              onPointerCancel={onPointerEnd}
+            >
+              <div className="flex justify-center pt-[7px] sm:hidden" aria-hidden="true">
+                <span className="h-[5px] w-9 rounded-full bg-ink/15" />
+              </div>
+              <div className="grid h-12 grid-cols-[1fr_auto_1fr] items-center gap-1 px-2 sm:h-14 sm:px-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="h-11 justify-self-start rounded-xl px-2.5 text-[17px] text-brand-ink transition-opacity active:opacity-50"
+                >
+                  {cancelLabel}
+                </button>
+                <h2 id={titleId} className="max-w-[52vw] truncate text-center text-[17px] font-bold sm:max-w-xs">
+                  {title}
+                </h2>
+                {action ? (
+                  <button
+                    type="button"
+                    onClick={action.onClick}
+                    disabled={action.disabled}
+                    className="h-11 justify-self-end rounded-xl px-2.5 text-[17px] font-bold text-brand-ink transition-opacity active:opacity-50 disabled:cursor-not-allowed disabled:text-ink-3/55 disabled:active:opacity-100"
+                  >
+                    {action.label}
+                  </button>
+                ) : (
+                  <span />
+                )}
+              </div>
+            </div>
+            <div
+              data-exit-scroll
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
+            >
+              <div className="pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">{children}</div>
+              <div ref={kbSpaceRef} aria-hidden="true" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </OnBandContext.Provider>,
+    document.body,
+  )
+}
+
+/** 페이지 시트 안의 묶음 (iOS 설정 화면처럼 흰 둥근 상자). label 은 상자 위 작은 제목, note 는 아래 작은 설명 */
+export function FormGroup({ label, note, children, className = '' }: { label?: ReactNode; note?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <section className={className}>
+      {label && <h3 className="mb-1.5 px-4 text-[13px] font-semibold text-ink-3">{label}</h3>}
+      <div className="overflow-hidden rounded-[12px] bg-surface [&>*+*]:relative [&>*+*]:before:absolute [&>*+*]:before:top-0 [&>*+*]:before:right-0 [&>*+*]:before:left-4 [&>*+*]:before:h-px [&>*+*]:before:bg-line/90">
+        {children}
+      </div>
+      {note && <div className="mt-1.5 px-4 text-[13px] leading-snug text-ink-3">{note}</div>}
+    </section>
   )
 }
 
@@ -606,11 +1007,17 @@ export function SyncBadge() {
  */
 function useDockedBottom(active: boolean, watch: string) {
   const [bottom, setBottom] = useState<number | null>(null)
+  /**
+   * 아래에서 올라오는 창(Sheet)이 열려 있으면 알림을 화면 위쪽에 띄워요 (창 안의 내용·버튼을 가리지 않게).
+   * 화면을 거의 다 덮는 페이지 시트는 맨 위에 [취소 · 추가] 줄이 있어서 그대로 아래쪽에 둬요
+   */
+  const [overSheet, setOverSheet] = useState(false)
   useLayoutEffect(() => {
     if (!active) return
     let raf = 0
     const measure = () => {
       raf = 0
+      setOverSheet(!!document.querySelector('body > [role="dialog"][aria-modal="true"]:not([data-page-sheet-root])'))
       const vh = window.innerHeight
       let top = vh
       document.querySelectorAll<HTMLElement>('.sticky, .fixed').forEach((el) => {
@@ -630,13 +1037,17 @@ function useDockedBottom(active: boolean, watch: string) {
     measure()
     window.addEventListener('scroll', schedule, { passive: true })
     window.addEventListener('resize', schedule)
+    // 창이 열리고 닫히면(body 에 붙었다 떨어지면) 알림 자리를 다시 정해요
+    const mo = new MutationObserver(schedule)
+    mo.observe(document.body, { childList: true })
     return () => {
       cancelAnimationFrame(raf)
+      mo.disconnect()
       window.removeEventListener('scroll', schedule)
       window.removeEventListener('resize', schedule)
     }
   }, [active, watch])
-  return bottom
+  return { bottom, overSheet }
 }
 
 export function Toasts() {
@@ -644,12 +1055,14 @@ export function Toasts() {
   const dismiss = useStore((s) => s.dismissToast)
   const tab = useStore((s) => s.tab)
   const groupId = useStore((s) => s.groupId)
-  const docked = useDockedBottom(toasts.length > 0, `${toasts.map((t) => t.id).join()}|${tab}|${groupId}`)
+  const { bottom: docked, overSheet } = useDockedBottom(toasts.length > 0, `${toasts.map((t) => t.id).join()}|${tab}|${groupId}`)
   return (
     <div
       data-toasts
-      className="no-print pointer-events-none fixed inset-x-0 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 md:bottom-8 md:left-52 lg:left-60"
-      style={docked ? { bottom: docked + 12 } : undefined}
+      className={`no-print pointer-events-none fixed inset-x-0 z-[60] flex flex-col items-center gap-2 px-4 ${
+        overSheet ? 'top-[calc(0.75rem+env(safe-area-inset-top))]' : 'bottom-[calc(5.5rem+env(safe-area-inset-bottom))] md:bottom-8 md:left-52 lg:left-60'
+      }`}
+      style={docked && !overSheet ? { bottom: docked + 12 } : undefined}
     >
       {toasts.map((t) => (
         <div

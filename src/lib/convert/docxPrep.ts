@@ -25,6 +25,9 @@ export const KEEP_ROW_MARK = '_amKr'
 export const CONTEXTUAL_MARK = '_amCs'
 /** 문단 끝 표시용 글자 */
 export const PARA_END = '​'
+/** 머리말·꼬리말의 쪽 번호(PAGE)·전체 쪽수(NUMPAGES) 자리. 쪽마다 그리기 직전에 숫자로 바꿔요 */
+export const PAGE_TOKEN = '\uE000'
+export const TOTAL_TOKEN = '\uE001'
 
 export type DocxPrep = {
   /** 손본 docx */
@@ -38,6 +41,8 @@ export type DocxPrep = {
   korean: boolean
   /** 심은 쪽 넘김 표시 수 */
   marks: number
+  /** 머리말·꼬리말에 쪽 번호 자리가 있는지 */
+  pageFields: boolean
 }
 
 type ThemeFonts = Record<string, string>
@@ -102,6 +107,64 @@ function newEl(doc: Document, name: string): Element {
 }
 
 let markSeq = 0
+
+const FIELD = /^\s*(PAGE|NUMPAGES|SECTIONPAGES)\b/i
+
+/** 쪽 번호 자리 글(run). 글자 모양(rPr)은 원래 필드 글을 따라요 */
+function tokenRun(doc: Document, instr: string, rPrFrom: Element | null): Element {
+  const r = newEl(doc, 'r')
+  const rPr = rPrFrom ? childEl(rPrFrom, W, 'rPr') : null
+  if (rPr) r.appendChild(rPr.cloneNode(true))
+  const t = newEl(doc, 't')
+  t.textContent = /^\s*PAGE\b/i.test(instr) ? PAGE_TOKEN : TOTAL_TOKEN
+  r.appendChild(t)
+  return r
+}
+
+/**
+ * 머리말·꼬리말의 쪽 번호 필드(PAGE, NUMPAGES)를 자리 글자로 바꿔요.
+ * docx-preview 는 필드를 그리지 않아서 그대로 두면 쪽 번호 자리가 비어요. 바꾼 게 있으면 true
+ */
+function markPageFields(doc: Document): boolean {
+  let found = false
+  for (const f of Array.from(doc.getElementsByTagNameNS(W, 'fldSimple'))) {
+    const instr = wAttr(f, 'instr') ?? ''
+    if (!FIELD.test(instr) || !f.parentNode) continue
+    f.parentNode.replaceChild(tokenRun(doc, instr, f.getElementsByTagNameNS(W, 'r')[0] ?? null), f)
+    found = true
+  }
+  for (const p of Array.from(doc.getElementsByTagNameNS(W, 'p'))) {
+    let st: { instr: string; result: boolean; runs: Element[]; style: Element | null } | null = null
+    let depth = 0
+    for (const r of Array.from(p.getElementsByTagNameNS(W, 'r'))) {
+      const type = wAttr(childEl(r, W, 'fldChar'), 'fldCharType')
+      if (type === 'begin') {
+        if (st) depth++
+        else st = { instr: '', result: false, runs: [r], style: r }
+        if (st.runs[0] !== r) st.runs.push(r)
+        continue
+      }
+      if (!st) continue
+      st.runs.push(r)
+      if (depth > 0) {
+        if (type === 'end') depth--
+        continue
+      }
+      if (type === 'separate') st.result = true
+      else if (type === 'end') {
+        const first = st.runs[0]
+        if (FIELD.test(st.instr) && first.parentNode) {
+          first.parentNode.insertBefore(tokenRun(doc, st.instr, st.style), first)
+          for (const x of st.runs) x.parentNode?.removeChild(x)
+          found = true
+        }
+        st = null
+      } else if (!st.result) for (const t of Array.from(r.getElementsByTagNameNS(W, 'instrText'))) st.instr += t.textContent ?? ''
+      else if (childEl(r, W, 'rPr') && st.style === st.runs[0]) st.style = r
+    }
+  }
+  return found
+}
 
 function bookmark(doc: Document, name: string): Element[] {
   const id = String(900000 + markSeq++)
@@ -311,6 +374,7 @@ export async function prepareDocx(file: Blob, JSZip: JSZipCtor): Promise<DocxPre
   }
 
   let marks = 0
+  let pageFields = false
   markSeq = 0
   const byStyle = contextualByStyle(stylesDoc)
   for (const path of Object.keys(zip.files)) {
@@ -325,6 +389,7 @@ export async function prepareDocx(file: Blob, JSZip: JSZipCtor): Promise<DocxPre
       markKeepRows(d)
     } else {
       for (const br of Array.from(d.getElementsByTagNameNS(W, 'lastRenderedPageBreak'))) br.remove()
+      if (/^word\/(header|footer)/.test(path) && markPageFields(d)) pageFields = true
     }
     markContextual(d, byStyle)
     addParagraphEnds(d)
@@ -333,5 +398,5 @@ export async function prepareDocx(file: Blob, JSZip: JSZipCtor): Promise<DocxPre
 
   const fonts = defaultFonts(stylesDoc, theme)
   const data = await zip.generateAsync({ type: 'uint8array', compression: 'STORE' })
-  return { data, wordPages: readWordPages(appXml), latinFont: fonts.latin, eastAsiaFont: fonts.ea, korean: /^ko/i.test(eaLang), marks }
+  return { data, wordPages: readWordPages(appXml), latinFont: fonts.latin, eastAsiaFont: fonts.ea, korean: /^ko/i.test(eaLang), marks, pageFields }
 }

@@ -29,6 +29,8 @@
 --  Run 하면 Storage 에 비공개 보관함 'am-reports'(파일 하나 최대 45MB, PDF 만)와 그 규칙도 만들어요.
 --  보관함은 비밀번호를 확인한 함수가 준 15분짜리 허락표가 있을 때만 파일을 올리고·받고·지울 수 있어요.
 --  예전 스크립트로 만든 서버는 한 번 더 Run 해야 목장보고서를 쓸 수 있어요.
+--  낸 보고서는 낸 사람(올린 휴대폰)만 열어 볼 수 있고, 마감·합친 PDF 는 '보고서 담당 비밀번호'를
+--  아는 사람만 해요. 담당 비밀번호는 처음에 비어 있어서, 담당이 앱 관리 탭에서 먼저 정해야 해요. 이 기능 전의 스크립트로 만든 서버는 한 번 더 Run 해야 해요. (자세한 내용은 목장보고서 부분)
 --
 --  보안 구조
 --    · 모든 표(테이블)는 RLS(행 수준 보안)를 켜 두고 허용 규칙을 하나도 만들지 않아요.
@@ -466,7 +468,9 @@ begin
   ) then
     if (select count(distinct a.code_hash)
         from public.login_attempts a
-        where a.at > now() - interval '10 minutes') >= 100 then
+        where a.at > now() - interval '10 minutes'
+          -- 목장보고서 담당 비밀번호를 틀린 기록('adm:')은 따로 세요 (공용 비밀번호 잠금에 섞지 않아요)
+          and a.client_key not like 'adm:%') >= 100 then
       return 'locked';
     end if;
   end if;
@@ -1707,10 +1711,30 @@ $$;
 --    그 파일 하나만, 15분 동안 쓸 수 있는 '허락표'(file_tickets)를 만들어 줘요.
 --    보관함 규칙(storage.objects 정책)은 이 허락표가 있을 때만 올리기·받기·지우기를 허락해요.
 --  · 파일 경로에는 무작위 uuid 가 들어 있어서 추측할 수 없어요.
+--  · 허락표는 정해진 동작에만 써요 (받기 허락표 = 받기·서명 주소 만들기만, 올리기 = 올리기만, 지우기 = 지우기만).
+--    Storage 의 '목록 보기'(list)에는 어떤 허락표도 통하지 않아서, 허락표가 살아 있는 동안에도
+--    남이 목록으로 파일 이름을 알아내 받아 갈 수 없어요. (Storage 가 알려 주는 storage.operation 으로 구분해요)
 --  · 마감된 주는 올리기·지우기를 막아요 → {"error": "closed"}
 --  · 1년(371일) 지난 주의 보고서는 마감할 때 목록에서 빼고, 앱이 그 파일을 지우게 해요.
 --    (Supabase 는 SQL 로 storage.objects 를 바로 지우는 것을 막아서, 앱이 Storage API 로 지워요)
 --  · 마감·올리기·지우기는 같은 주일끼리 하나씩 처리해요(잠금). 마감한 뒤에 도착한 올리기는 'closed' 가 돼요.
+--
+--  낸 보고서는 낸 사람만 열어 볼 수 있어요 (서버가 막아요. 화면에서 숨기기만 하는 게 아니에요)
+--  · '낸 사람' = 올린 휴대폰(브라우저). 올릴 때 앱이 그 기기에만 두는 무작위 '주인 열쇠'를 같이 보내고,
+--    서버는 열쇠 자체가 아니라 그 지문(sha256)만 owner_hash 에 적어요.
+--  · 목록(am_get_reports)은 누구에게나 '냈다'는 것(목장·쪽수·낸 시각)만 보여 줘요.
+--    파일 경로·파일 이름·크기는 같은 열쇠를 보낸 기기(mine = true)에게만 줘요.
+--  · 받기 허락표(am_report_read)·바꾸기(am_report_begin/commit)·지우기(am_report_delete)도 같은 열쇠가 있어야 해요.
+--  · 열쇠가 없는 예전 보고서(이 기능 전에 올린 것)는 아무도 열 수 없어요. 보고서 담당만 지울 수 있어요.
+--
+--  보고서 담당 비밀번호 (마감·마감 풀기·합친 PDF·남의 보고서 지우기)
+--  · app_settings 'report_admin_hash' 에 bcrypt 로 저장해요. 처음(임시) 값은 0000 이에요 (회장이 정함).
+--    회장이 정해진 담당에게만 알려 주고, 관리 탭에서 숫자 4~8자리로 바꿀 수 있어요.
+--    이미 바꿨으면 다시 Run 해도 그대로예요. 값을 비우면('') 정하기 전이 되어 마감·합친 PDF 를 막아요 → {"error": "pin_unset"}.
+--  · 공용 비밀번호(p_code)를 먼저 확인한 뒤 같은 함수 안에서 한 번만 확인해요 (am__verify_admin).
+--  · 틀린 담당 비밀번호도 기기마다 세요. 10분 안에 서로 다른 틀린 값을 10번 넣으면 그 기기는 잠시(최대 10분) 막아요.
+--    모든 기기를 합쳐 10분 안에 서로 다른 틀린 값이 30개가 되면, 모든 기기를 잠시 막아요 (여러 곳에서 맞혀 보기 막기).
+--    공용 비밀번호 잠금과는 따로 세요. (login_attempts 에 'adm:' 로 시작하는 기기 열쇠로 남겨요)
 -- ---------------------------------------------------------------------
 
 -- 목장이 낸 보고서 (주일·목장마다 하나. 다시 올리면 새 파일로 바뀌어요)
@@ -1723,9 +1747,18 @@ create table if not exists public.report_files (
   pages       integer not null default 0,
   size_bytes  integer not null default 0,
   uploaded_at timestamptz not null default now(),
+  owner_hash  text,
   primary key (date, group_id)
 );
 create index if not exists report_files_path_idx on public.report_files (path);
+-- 낸 사람(기기) 열쇠의 지문 (sha256 16진수). 예전 스크립트로 만든 서버에는 없어서 새로 붙여요.
+--  비어 있으면(이 기능 전에 올린 보고서) 아무의 것도 아니에요: 열 수 없고, 담당만 지울 수 있어요
+alter table public.report_files add column if not exists owner_hash text;
+
+-- 보고서 담당 비밀번호 (처음 값 0000. 이미 있으면 그대로 둬요 → 다시 Run 해도 바꾼 비밀번호가 지워지지 않아요)
+insert into public.app_settings (key, value)
+values ('report_admin_hash', crypt('0000', gen_salt('bf')))
+on conflict (key) do nothing;
 
 -- 주일별 마감 (줄이 없거나 closed_at 이 비어 있으면 마감 전)
 create table if not exists public.report_weeks (
@@ -1769,6 +1802,24 @@ $$;
 revoke all on function public.am__ticket_ok(text, text) from public, anon, authenticated;
 grant execute on function public.am__ticket_ok(text, text) to anon, authenticated;
 
+-- 지금 Storage 가 하는 동작이 이 목록 안에 있는지 ('storage.object.get_authenticated' 등. 앞의 'storage.' 는 빼고 비교해요)
+--  Storage 는 요청마다 storage.operation 에 동작 이름을 적어 줘요. 목록 보기는 'object.list' / 'object.list_v2' /
+--  's3.object.list' 라서 받기 규칙에 넣지 않아요. 동작 이름이 없으면(아주 옛날 Storage) 아무것도 허락하지 않아요.
+create or replace function public.am__storage_op_in(p_ops text[])
+returns boolean
+language sql
+stable
+set search_path = public, extensions
+as $$
+  select coalesce(
+    regexp_replace(coalesce(current_setting('storage.operation', true), ''), '^storage\.', '') = any (p_ops),
+    false
+  );
+$$;
+
+revoke all on function public.am__storage_op_in(text[]) from public, anon, authenticated;
+grant execute on function public.am__storage_op_in(text[]) to anon, authenticated;
+
 -- 허락표 주기 (이미 있으면 더 늦게 끝나는 쪽으로)
 create or replace function public.am__ticket_give(p_paths text[], p_kind text, p_minutes integer)
 returns void
@@ -1806,8 +1857,20 @@ as $$
      and exists (select 1 from pg_roles r where r.rolname = current_user and (r.rolsuper or r.rolbypassrls));
 $$;
 
+-- 예전 버전의 보고서 함수들 (낸 사람 확인·담당 비밀번호가 없던 것). 남아 있으면 우회로가 되니 지워요
+drop function if exists public.am__report_json(public.report_files);
+drop function if exists public.am_get_reports(text, date);
+drop function if exists public.am_report_begin(text, date, uuid);
+drop function if exists public.am_report_commit(text, date, uuid, text, text, integer, integer);
+drop function if exists public.am_report_delete(text, date, uuid);
+drop function if exists public.am_report_read(text, text[]);
+drop function if exists public.am_report_close(text, date);
+drop function if exists public.am_report_reopen(text, date);
+
 -- 보고서 한 줄 → 앱이 쓰는 모양
-create or replace function public.am__report_json(f public.report_files)
+--  누구에게나: groupId, pages, uploadedAt, mine
+--  낸 사람(mine = true)에게만: path(파일 경로), fileName, sizeBytes
+create or replace function public.am__report_json(f public.report_files, p_mine boolean)
 returns jsonb
 language sql
 stable
@@ -1815,25 +1878,178 @@ set search_path = public, extensions
 as $$
   select jsonb_build_object(
     'groupId',    f.group_id,
-    'path',       f.path,
-    'fileName',   f.file_name,
     'pages',      f.pages,
-    'sizeBytes',  f.size_bytes,
-    'uploadedAt', to_char(f.uploaded_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+    'uploadedAt', to_char(f.uploaded_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    'mine',       coalesce(p_mine, false)
+  ) || case
+         when coalesce(p_mine, false) then jsonb_build_object(
+           'path',      f.path,
+           'fileName',  f.file_name,
+           'sizeBytes', f.size_bytes
+         )
+         else '{}'::jsonb
+       end;
+$$;
+
+-- 주인 열쇠 → 지문 (sha256 16진수). 열쇠 모양(영문·숫자·-·_ 32~128자)이 아니면 null
+create or replace function public.am__owner_hash(p_owner text)
+returns text
+language sql
+immutable
+set search_path = public, extensions
+as $$
+  select case
+           when p_owner ~ '^[A-Za-z0-9_-]{32,128}$' then encode(digest(p_owner, 'sha256'), 'hex')
+         end;
+$$;
+
+-- 주인 열쇠 여러 개 → 지문들 (앞에서 200개까지, 모양이 이상한 값은 빼요). 없으면 빈 배열
+create or replace function public.am__owner_hashes(p_owners text[])
+returns text[]
+language sql
+immutable
+set search_path = public, extensions
+as $$
+  select coalesce(array_agg(distinct x.h), '{}'::text[])
+  from (
+    select public.am__owner_hash(u.o) as h
+    from unnest(coalesce(p_owners, '{}'::text[])) with ordinality as u(o, n)
+    where u.n <= 200
+  ) x
+  where x.h is not null;
+$$;
+
+-- 보고서 담당 비밀번호를 정했는지 (비어 있거나 예전 처음 값 0000 이면 '정하기 전')
+create or replace function public.am__admin_pin_set()
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_hash text;
+begin
+  select s.value into v_hash from public.app_settings s where s.key = 'report_admin_hash';
+  if v_hash is null or v_hash !~ '^\$2[abxy]?\$' then
+    return false;
+  end if;
+  return true;
+end;
+$$;
+
+-- 보고서 담당 비밀번호 확인: 'ok' | 'bad_pin' | 'locked' | 'pin_unset'
+--  · 꼭 am__verify(공용 비밀번호)가 'ok' 를 돌려준 다음에, 같은 함수 안에서 한 번만 불러요.
+--    (am__verify 와 같은 이유: 한 요청에 여러 번 묶어 보내 맞혀 보는 것을 막아요)
+--  · 틀리면 기록을 남기고 값으로 돌려줘요 (예외를 쓰면 기록까지 취소돼요).
+--    기록은 login_attempts 에 'adm:' + 기기 열쇠로 남아서, 공용 비밀번호 잠금과 따로 세요.
+--  · 이 기기가 10분 안에 서로 다른 틀린 담당 비밀번호를 10번 넣었으면 잠시 막아요 (맞는 비밀번호도).
+create or replace function public.am__verify_admin(p_pin text)
+returns text
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v_hash  text;
+  v_salt  text;
+  v_try   text;
+  v_key   text;
+  v_limit integer;
+begin
+  -- 공용 비밀번호 확인(am__verify)을 먼저 한 요청에서만
+  if coalesce(current_setting('am.verified', true), '') <> '1' then
+    raise exception 'AM_ADMIN_ORDER' using errcode = 'P0001';
+  end if;
+  -- 한 요청(트랜잭션)에서 담당 비밀번호 확인은 한 번만
+  if coalesce(current_setting('am.admin_checked', true), '') = '1' then
+    raise exception 'AM_ONE_CALL' using errcode = 'P0001';
+  end if;
+  perform set_config('am.admin_checked', '1', true);
+
+  -- 아직 정하지 않았으면 아무 값도 통하지 않아요 (틀린 기록도 남기지 않아요)
+  if not public.am__admin_pin_set() then
+    return 'pin_unset';
+  end if;
+
+  v_key := 'adm:' || public.am__client_key();
+  -- 같은 기기에서 동시에 여러 번 보내도 하나씩 세도록
+  perform pg_advisory_xact_lock(hashtext('am_verify_admin'), hashtext(v_key));
+
+  -- 주소를 알 수 없는 요청('unknown')은 모두 한 묶음이라 15번까지 봐줘요 (am__verify 와 같게)
+  v_limit := case when v_key = 'adm:unknown' then 15 else 10 end;
+  if (select count(distinct a.code_hash)
+      from public.login_attempts a
+      where a.client_key = v_key and a.at > now() - interval '10 minutes') >= v_limit then
+    return 'locked';
+  end if;
+  -- 모든 기기를 합쳐 10분 안에 서로 다른 틀린 담당 비밀번호가 30개면 잠시 모두 막아요
+  --  (주소를 바꿔 가며 맞혀 보기 막기. 바로 풀려면 맨 아래 '담당 비밀번호를 여러 번 틀려서 막혔을 때')
+  if (select count(distinct a.code_hash)
+      from public.login_attempts a
+      where a.client_key like 'adm:%' and a.at > now() - interval '10 minutes') >= 30 then
+    return 'locked';
+  end if;
+
+  select s.value into v_hash from public.app_settings s where s.key = 'report_admin_hash';
+  if v_hash is not null
+     and p_pin is not null
+     and p_pin ~ '^[0-9]{4,8}$'
+     and crypt(p_pin, v_hash) = v_hash then
+    return 'ok';
+  end if;
+
+  -- 같은 기기에서 같은 틀린 값은 10분 안에 한 번만 세요
+  select s.value into v_salt from public.app_settings s where s.key = 'attempt_salt';
+  v_try := encode(digest(coalesce(v_salt, '') || ':adm:' || left(coalesce(p_pin, ''), 64), 'sha256'), 'hex');
+
+  insert into public.login_attempts (code_hash, client_key)
+  select v_try, v_key
+  where not exists (
+    select 1 from public.login_attempts a
+    where a.client_key = v_key and a.code_hash = v_try and a.at > now() - interval '10 minutes'
   );
+
+  delete from public.login_attempts la where la.at < now() - interval '1 day';
+
+  return 'bad_pin';
+end;
+$$;
+
+-- 담당 비밀번호 확인 결과 → 앱에 돌려줄 오류 ('locked' 는 공용 비밀번호 잠금과 헷갈리지 않게 'pin_locked')
+create or replace function public.am__pin_error(p_result text)
+returns jsonb
+language sql
+immutable
+set search_path = public, extensions
+as $$
+  select jsonb_build_object('error', case
+                                       when p_result = 'locked' then 'pin_locked'
+                                       when p_result = 'pin_unset' then 'pin_unset'
+                                       else 'bad_pin'
+                                     end);
 $$;
 
 revoke all on function public.am__ticket_give(text[], text, integer)  from public, anon, authenticated;
 revoke all on function public.am__tickets_gc()                         from public, anon, authenticated;
 revoke all on function public.am__can_see_storage()                    from public, anon, authenticated;
-revoke all on function public.am__report_json(public.report_files)     from public, anon, authenticated;
+revoke all on function public.am__report_json(public.report_files, boolean) from public, anon, authenticated;
+revoke all on function public.am__owner_hash(text)                     from public, anon, authenticated;
+revoke all on function public.am__owner_hashes(text[])                 from public, anon, authenticated;
+revoke all on function public.am__verify_admin(text)                   from public, anon, authenticated;
+revoke all on function public.am__admin_pin_set()                       from public, anon, authenticated;
+revoke all on function public.am__pin_error(text)                      from public, anon, authenticated;
 
 -- 보관함 'am-reports' 만들기 + 규칙 (Storage 가 없는 일반 PostgreSQL 에서는 건너뛰어요)
 --  비공개, 파일 하나 최대 45MB, PDF 만.
 --  규칙 이름은 am_reports_ 로 시작해요. 다시 Run 하면 지우고 새로 만들어요.
 --  · 올리기(insert): 올리기 허락표가 있는 경로만
---  · 보기(select):  받기·올리기·지우기 허락표가 있는 경로만
+--  · 보기(select):  받기·올리기·지우기 허락표가 있는 경로를, 그 허락표가 정한 동작에서만
+--      받기 허락표 → 받기(object.get_authenticated)·서명 주소 만들기(object.sign)
+--      올리기 허락표 → 올리기(object.upload), 지우기 허락표 → 지우기(object.delete, object.delete_many)
 --    (올린 직후 결과를 돌려받을 때, 지울 때도 Storage 가 '보기' 규칙을 함께 확인해요)
+--    목록 보기(object.list 등)는 어느 쪽에도 없어서, 허락표가 있어도 목록에는 아무것도 안 나와요
 --  · 지우기(delete): 지우기 허락표가 있는 경로만
 --  · 덮어쓰기(update) 규칙은 만들지 않아요 → 이미 있는 파일은 바꿀 수 없어요
 do $$
@@ -1859,29 +2075,33 @@ begin
   execute $sql$
     create policy am_reports_insert on storage.objects
       for insert to anon
-      with check (bucket_id = 'am-reports' and public.am__ticket_ok(name, 'upload'))
+      with check (bucket_id = 'am-reports' and public.am__storage_op_in('{object.upload}'::text[]) and public.am__ticket_ok(name, 'upload'))
   $sql$;
   execute $sql$
     create policy am_reports_select on storage.objects
       for select to anon
       using (
         bucket_id = 'am-reports'
-        and (public.am__ticket_ok(name, 'read')
-             or public.am__ticket_ok(name, 'upload')
-             or public.am__ticket_ok(name, 'delete'))
+        and (
+          (public.am__storage_op_in('{object.get_authenticated,object.sign}'::text[]) and public.am__ticket_ok(name, 'read'))
+          or (public.am__storage_op_in('{object.upload}'::text[]) and public.am__ticket_ok(name, 'upload'))
+          or (public.am__storage_op_in('{object.delete,object.delete_many}'::text[]) and public.am__ticket_ok(name, 'delete'))
+        )
       )
   $sql$;
   execute $sql$
     create policy am_reports_delete on storage.objects
       for delete to anon
-      using (bucket_id = 'am-reports' and public.am__ticket_ok(name, 'delete'))
+      using (bucket_id = 'am-reports' and public.am__storage_op_in('{object.delete,object.delete_many}'::text[]) and public.am__ticket_ok(name, 'delete'))
   $sql$;
 end
 $$;
 
 -- 그 주일의 마감 여부와 낸 보고서 (목장 순서대로)
---  돌려주는 값: {"date", "closedAt": 마감 시각 | null, "files": [{groupId, path, fileName, pages, sizeBytes, uploadedAt}]}
-create or replace function public.am_get_reports(p_code text, p_date date)
+--  p_owners: 이 기기가 가진 주인 열쇠들 (그 주일에 이 기기가 낸 보고서를 알아보는 데만 써요)
+--  돌려주는 값: {"date", "closedAt": 마감 시각 | null,
+--               "files": [{groupId, pages, uploadedAt, mine, (mine 일 때만) path, fileName, sizeBytes}]}
+create or replace function public.am_get_reports(p_code text, p_date date, p_owners text[])
 returns jsonb
 language plpgsql
 volatile
@@ -1891,6 +2111,7 @@ as $$
 declare
   v        text;
   v_closed timestamptz;
+  v_mine   text[];
 begin
   v := public.am__verify(p_code);
   if v <> 'ok' then
@@ -1900,13 +2121,17 @@ begin
     return jsonb_build_object('error', 'invalid');
   end if;
 
+  v_mine := public.am__owner_hashes(p_owners);
   select w.closed_at into v_closed from public.report_weeks w where w.date = p_date;
 
   return jsonb_build_object(
     'date',     to_char(p_date, 'YYYY-MM-DD'),
     'closedAt', to_char(v_closed at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
     'files',    coalesce((
-      select jsonb_agg(public.am__report_json(f) order by g.sort_order, g.name, f.group_id)
+      select jsonb_agg(
+               public.am__report_json(f, f.owner_hash is not null and f.owner_hash = any (v_mine))
+               order by g.sort_order, g.name, f.group_id
+             )
       from public.report_files f
       left join public.groups g on g.id = f.group_id
       where f.date = p_date
@@ -1916,9 +2141,11 @@ end;
 $$;
 
 -- 올리기 시작: 새 경로와 15분짜리 올리기 허락표를 줘요 → {"ok": true, "path"}
+--  p_owner: 이 기기의 주인 열쇠 (없거나 모양이 이상하면 {"error": "invalid"})
 --  마감된 주면 {"error": "closed"}, 없거나 지운 목장이면 {"error": "no_group"}
+--  그 목장에 다른 사람(다른 열쇠)이 낸 보고서가 이미 있으면 {"error": "not_owner"} (낸 사람만 바꿀 수 있어요)
 --  앱은 이 경로로 Storage 에 올린 뒤 am_report_commit 을 불러요.
-create or replace function public.am_report_begin(p_code text, p_date date, p_group_id uuid)
+create or replace function public.am_report_begin(p_code text, p_date date, p_group_id uuid, p_owner text)
 returns jsonb
 language plpgsql
 volatile
@@ -1926,14 +2153,16 @@ security definer
 set search_path = public, extensions
 as $$
 declare
-  v      text;
-  v_path text;
+  v       text;
+  v_path  text;
+  v_owner text;
 begin
   v := public.am__verify(p_code);
   if v <> 'ok' then
     return jsonb_build_object('error', v);
   end if;
-  if p_date is null or p_group_id is null
+  v_owner := public.am__owner_hash(p_owner);
+  if p_date is null or p_group_id is null or v_owner is null
      or p_date < '2000-01-01'::date or p_date > '2100-12-31'::date then
     return jsonb_build_object('error', 'invalid');
   end if;
@@ -1947,6 +2176,13 @@ begin
   end if;
   if not exists (select 1 from public.groups g where g.id = p_group_id and not g.archived) then
     return jsonb_build_object('error', 'no_group');
+  end if;
+  -- 다른 사람이 낸 보고서(열쇠 없는 예전 보고서 포함)는 바꿀 수 없어요
+  if exists (
+    select 1 from public.report_files f
+    where f.date = p_date and f.group_id = p_group_id and f.owner_hash is distinct from v_owner
+  ) then
+    return jsonb_build_object('error', 'not_owner');
   end if;
 
   perform public.am__tickets_gc();
@@ -1962,14 +2198,15 @@ begin
 end;
 $$;
 
--- 올리기 마치기: Storage 에 올린 파일을 그 목장의 보고서로 적어요
---  돌려주는 값: {"ok": true, "file": 보고서, "oldPath": 예전 파일 경로 | null}
---  예전 파일이 있었으면 그 경로에 지우기 허락표를 주고, 앱이 지워요.
---  마감된 주면 {"error": "closed", "orphan": 방금 올린 경로} (앱이 지우도록 지우기 허락표를 줘요)
---  그 밖의 오류: invalid(값이 이상함), expired(올리기 허락표가 없거나 오래됨), no_group, not_uploaded(파일이 없음)
+-- 올리기 마치기: Storage 에 올린 파일을 그 목장의 보고서로 적어요 (낸 사람 = p_owner 열쇠의 지문)
+--  돌려주는 값: {"ok": true, "file": 보고서(mine), "oldPath": 예전 파일 경로 | null}
+--  예전 파일이 있었으면(같은 사람이 바꾼 경우) 그 경로에 지우기 허락표를 주고, 앱이 지워요.
+--  마감됐거나(closed) 목장이 없어졌거나(no_group) 그사이 다른 사람이 먼저 냈으면(not_owner)
+--  {"error": …, "orphan": 방금 올린 경로} (앱이 지우도록 지우기 허락표를 줘요)
+--  그 밖의 오류: invalid(값이 이상함), expired(올리기 허락표가 없거나 오래됨), not_uploaded(파일이 없음)
 --  같은 요청을 다시 보내도(답이 끊겨 다시 보낸 경우) 이미 적혀 있으면 그대로 ok.
 create or replace function public.am_report_commit(
-  p_code text, p_date date, p_group_id uuid, p_path text, p_file_name text, p_pages integer, p_size integer
+  p_code text, p_date date, p_group_id uuid, p_path text, p_file_name text, p_pages integer, p_size integer, p_owner text
 )
 returns jsonb
 language plpgsql
@@ -1979,6 +2216,7 @@ set search_path = public, extensions
 as $$
 declare
   v         text;
+  v_owner   text;
   v_prefix  text;
   v_name    text;
   v_old     text;
@@ -1993,7 +2231,8 @@ begin
   if v <> 'ok' then
     return jsonb_build_object('error', v);
   end if;
-  if p_date is null or p_group_id is null or p_path is null
+  v_owner := public.am__owner_hash(p_owner);
+  if p_date is null or p_group_id is null or p_path is null or v_owner is null
      or p_pages is null or p_pages < 0 or p_pages > 5000
      or p_size is null or p_size < 0 then
     return jsonb_build_object('error', 'invalid');
@@ -2009,9 +2248,13 @@ begin
   select * into r from public.report_files f where f.date = p_date and f.group_id = p_group_id for update;
   v_found := found;
   if v_found and r.path = p_path then
-    -- 이미 적혀 있어요 (같은 요청을 다시 보냄)
+    -- 이미 적혀 있는 파일이에요. 낸 사람이 같은 요청을 다시 보낸 경우만 ok
+    -- (다른 사람에게는 지금 파일의 지우기 허락표 같은 것을 절대 주지 않아요)
+    if r.owner_hash is distinct from v_owner then
+      return jsonb_build_object('error', 'not_owner');
+    end if;
     delete from public.file_tickets t where t.path = p_path and t.kind = 'upload';
-    return jsonb_build_object('ok', true, 'file', public.am__report_json(r), 'oldPath', null);
+    return jsonb_build_object('ok', true, 'file', public.am__report_json(r, true), 'oldPath', null);
   end if;
   v_old := case when v_found then r.path end;
 
@@ -2021,15 +2264,19 @@ begin
     where t.path = p_path and t.kind = 'upload' and t.expires_at > now() - interval '30 minutes'
   );
 
-  -- 마감됐거나 목장이 없어졌으면: 방금 올린 파일은 앱이 지우도록 지우기 허락표를 줘요
+  -- 마감됐거나, 목장이 없어졌거나, 그사이 다른 사람이 먼저 냈으면:
+  -- 방금 올린 파일은 앱이 지우도록 지우기 허락표를 줘요
   if exists (select 1 from public.report_weeks w where w.date = p_date and w.closed_at is not null) then
     v := 'closed';
   elsif not exists (select 1 from public.groups g where g.id = p_group_id and not g.archived) then
     v := 'no_group';
+  elsif v_found and r.owner_hash is distinct from v_owner then
+    v := 'not_owner';
   elsif not v_ticket then
     return jsonb_build_object('error', 'expired');
   end if;
   if v <> 'ok' then
+    -- 올리기 허락표가 있는 경로 = 방금 새로 만든 무작위 경로 (지금 목록에 있는 파일이 아니에요)
     if v_ticket then
       delete from public.file_tickets t where t.path = p_path and t.kind = 'upload';
       perform public.am__ticket_give(array[p_path], 'delete', 15);
@@ -2065,14 +2312,16 @@ begin
     v_name := '보고서.pdf';
   end if;
 
-  insert into public.report_files as f (date, group_id, path, file_name, pages, size_bytes, uploaded_at)
-  values (p_date, p_group_id, p_path, v_name, p_pages, least(coalesce(v_size, p_size), 2147483647)::integer, now())
+  -- 여기까지 왔으면 줄이 없거나(처음 냄) 같은 사람이 낸 줄이에요 (위에서 확인. 같은 주일 잠금 안이라 그사이 바뀌지 않아요)
+  insert into public.report_files as f (date, group_id, path, file_name, pages, size_bytes, uploaded_at, owner_hash)
+  values (p_date, p_group_id, p_path, v_name, p_pages, least(coalesce(v_size, p_size), 2147483647)::integer, now(), v_owner)
   on conflict (date, group_id) do update
     set path        = excluded.path,
         file_name   = excluded.file_name,
         pages       = excluded.pages,
         size_bytes  = excluded.size_bytes,
-        uploaded_at = excluded.uploaded_at
+        uploaded_at = excluded.uploaded_at,
+        owner_hash  = excluded.owner_hash
   returning * into r;
 
   delete from public.file_tickets t where t.path = p_path and t.kind = 'upload';
@@ -2085,13 +2334,16 @@ begin
   insert into public.report_weeks as w (date, updated_at) values (p_date, now())
   on conflict (date) do update set updated_at = excluded.updated_at;
 
-  return jsonb_build_object('ok', true, 'file', public.am__report_json(r), 'oldPath', v_old);
+  return jsonb_build_object('ok', true, 'file', public.am__report_json(r, true), 'oldPath', v_old);
 end;
 $$;
 
 -- 낸 보고서 지우기 (마감 전만) → {"ok": true, "path": 지울 파일 경로 | null}
+--  낸 사람(p_owner 열쇠)이거나, 맞는 보고서 담당 비밀번호(p_admin)가 있어야 해요.
+--  (열쇠 없는 예전 보고서·다른 사람이 올린 보고서 정리는 담당만)
+--  다른 사람 것이면 {"error": "not_owner"}, 담당 비밀번호가 틀리면 {"error": "bad_pin" | "pin_locked"}
 --  앱이 그 경로의 파일을 지우도록 지우기 허락표를 줘요. 이미 없으면 path 는 null.
-create or replace function public.am_report_delete(p_code text, p_date date, p_group_id uuid)
+create or replace function public.am_report_delete(p_code text, p_date date, p_group_id uuid, p_owner text, p_admin text)
 returns jsonb
 language plpgsql
 volatile
@@ -2099,8 +2351,11 @@ security definer
 set search_path = public, extensions
 as $$
 declare
-  v      text;
-  v_path text;
+  v       text;
+  v_owner text;
+  v_admin boolean := false;
+  v_cur   text;
+  v_path  text;
 begin
   v := public.am__verify(p_code);
   if v <> 'ok' then
@@ -2109,11 +2364,28 @@ begin
   if p_date is null or p_group_id is null then
     return jsonb_build_object('error', 'invalid');
   end if;
+  -- 담당 비밀번호를 보냈으면 확인해요 (틀리면 기록이 남아요)
+  if nullif(p_admin, '') is not null then
+    v := public.am__verify_admin(p_admin);
+    if v <> 'ok' then
+      return public.am__pin_error(v);
+    end if;
+    v_admin := true;
+  end if;
+  v_owner := public.am__owner_hash(p_owner);
 
   perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
 
   if exists (select 1 from public.report_weeks w where w.date = p_date and w.closed_at is not null) then
     return jsonb_build_object('error', 'closed');
+  end if;
+
+  select f.owner_hash into v_cur
+    from public.report_files f
+   where f.date = p_date and f.group_id = p_group_id
+     for update;
+  if found and not v_admin and (v_owner is null or v_cur is distinct from v_owner) then
+    return jsonb_build_object('error', 'not_owner');
   end if;
 
   delete from public.report_files f
@@ -2130,8 +2402,12 @@ begin
 end;
 $$;
 
--- 파일 받기·보기 허락 (15분): 목록에 있는 경로만, 한 번에 최대 60개 → {"ok": true, "paths": 허락한 경로}
-create or replace function public.am_report_read(p_code text, p_paths text[])
+-- 파일 받기·보기 허락 (15분) → {"ok": true, "paths": 허락한 경로, "files": [{groupId, path}] (담당일 때만)}
+--  · 보통: p_paths 중에서 p_owners 열쇠로 낸 보고서(내 것)만, 한 번에 최대 60개.
+--    남이 낸 보고서는 경로를 알아도 허락하지 않아요.
+--  · 담당(p_admin 이 맞음): 그 주일(p_date)의 모든 보고서 (합친 PDF 만들기용). p_paths 는 보지 않아요.
+--    담당 비밀번호가 틀리면 {"error": "bad_pin" | "pin_locked"}
+create or replace function public.am_report_read(p_code text, p_date date, p_paths text[], p_owners text[], p_admin text)
 returns jsonb
 language plpgsql
 volatile
@@ -2141,20 +2417,52 @@ as $$
 declare
   v       text;
   v_paths text[];
+  v_files jsonb;
+  v_mine  text[];
 begin
   v := public.am__verify(p_code);
   if v <> 'ok' then
     return jsonb_build_object('error', v);
   end if;
+
+  if nullif(p_admin, '') is not null then
+    if p_date is null then
+      return jsonb_build_object('error', 'invalid');
+    end if;
+    v := public.am__verify_admin(p_admin);
+    if v <> 'ok' then
+      return public.am__pin_error(v);
+    end if;
+
+    perform public.am__tickets_gc();
+    select array_agg(f.path order by f.group_id),
+           jsonb_agg(jsonb_build_object('groupId', f.group_id, 'path', f.path) order by f.group_id)
+      into v_paths, v_files
+      from public.report_files f
+     where f.date = p_date;
+    if v_paths is not null then
+      perform public.am__ticket_give(v_paths, 'read', 15);
+    end if;
+    return jsonb_build_object(
+      'ok',    true,
+      'paths', to_jsonb(coalesce(v_paths, '{}'::text[])),
+      'files', coalesce(v_files, '[]'::jsonb)
+    );
+  end if;
+
   if p_paths is null or coalesce(cardinality(p_paths), 0) > 60 then
     return jsonb_build_object('error', 'invalid');
   end if;
+  v_mine := public.am__owner_hashes(p_owners);
 
   perform public.am__tickets_gc();
 
   select array_agg(distinct f.path) into v_paths
   from public.report_files f
-  where f.path = any (p_paths);
+  where f.path = any (p_paths)
+    and f.owner_hash is not null
+    and f.owner_hash = any (v_mine)
+    and (p_date is null or f.date = p_date);
 
   if v_paths is not null then
     perform public.am__ticket_give(v_paths, 'read', 15);
@@ -2164,10 +2472,11 @@ begin
 end;
 $$;
 
--- 마감하기 (이미 마감됐으면 처음 마감 시각 그대로) → {"ok": true, "closedAt", "prune": 지울 파일 경로들}
+-- 마감하기 (보고서 담당만. 이미 마감됐으면 처음 마감 시각 그대로) → {"ok": true, "closedAt", "prune": 지울 파일 경로들}
+--  담당 비밀번호가 틀리면 {"error": "bad_pin" | "pin_locked"}
 --  마감하는 김에 정리도 해요: 1년(371일) 지난 주의 보고서는 목록에서 빼고(한 번에 300개까지),
 --  어느 목록에도 없는 하루 넘은 파일(올리다 끊긴 것 등, 200개까지)도 찾아서, 앱이 지우도록 지우기 허락표를 줘요.
-create or replace function public.am_report_close(p_code text, p_date date)
+create or replace function public.am_report_close(p_code text, p_date date, p_admin text)
 returns jsonb
 language plpgsql
 volatile
@@ -2186,6 +2495,10 @@ begin
   end if;
   if p_date is null or p_date < '2000-01-01'::date or p_date > '2100-12-31'::date then
     return jsonb_build_object('error', 'invalid');
+  end if;
+  v := public.am__verify_admin(p_admin);
+  if v <> 'ok' then
+    return public.am__pin_error(v);
   end if;
 
   perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
@@ -2251,8 +2564,9 @@ begin
 end;
 $$;
 
--- 마감 풀기 (실수로 마감했을 때) → {"ok": true}
-create or replace function public.am_report_reopen(p_code text, p_date date)
+-- 마감 풀기 (보고서 담당만. 실수로 마감했을 때) → {"ok": true}
+--  담당 비밀번호가 틀리면 {"error": "bad_pin" | "pin_locked"}
+create or replace function public.am_report_reopen(p_code text, p_date date, p_admin text)
 returns jsonb
 language plpgsql
 volatile
@@ -2269,12 +2583,97 @@ begin
   if p_date is null then
     return jsonb_build_object('error', 'invalid');
   end if;
+  v := public.am__verify_admin(p_admin);
+  if v <> 'ok' then
+    return public.am__pin_error(v);
+  end if;
 
   perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
 
   update public.report_weeks w
      set closed_at = null, updated_at = now()
    where w.date = p_date and w.closed_at is not null;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- 보고서 담당 비밀번호 확인만 → {"ok": true} | {"error": "bad_pin" | "pin_locked"}
+create or replace function public.am_report_admin_check(p_code text, p_pin text)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  v := public.am__verify_admin(p_pin);
+  if v <> 'ok' then
+    return public.am__pin_error(v);
+  end if;
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- 보고서 담당 비밀번호를 정했는지 → {"ok": true, "set": true | false}
+create or replace function public.am_report_admin_state(p_code text)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  return jsonb_build_object('ok', true, 'set', public.am__admin_pin_set());
+end;
+$$;
+
+-- 보고서 담당 비밀번호 바꾸기 (숫자 4~8자리. 처음 값 0000) → {"ok": true}
+--  · 지금 담당 비밀번호(처음엔 0000)가 맞아야 바꿔요. 값이 비어 있는 서버에서만 지금 비밀번호 없이 정해요.
+--    (잊었으면 회장이 맨 아래 '담당 비밀번호를 잊었을 때'로 0000 으로 되돌려요)
+--  새 비밀번호 모양이 틀리면 {"error": "invalid_pin"}, 지금 담당 비밀번호가 틀리면 {"error": "bad_pin" | "pin_locked"}
+create or replace function public.am_report_admin_change(p_code text, p_current text, p_next text)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  -- 새 비밀번호 모양을 먼저 봐요 (틀린 기록이 남기 전에)
+  if p_next is null or p_next !~ '^[0-9]{4,8}$' then
+    return jsonb_build_object('error', 'invalid_pin');
+  end if;
+  -- 두 기기가 동시에 처음 정하는 것을 하나씩 (나중 것은 '지금 비밀번호'를 확인해요)
+  perform pg_advisory_xact_lock(hashtext('am_report_admin_change'), 0);
+  if public.am__admin_pin_set() then
+    v := public.am__verify_admin(p_current);
+    if v <> 'ok' then
+      return public.am__pin_error(v);
+    end if;
+  end if;
+
+  insert into public.app_settings (key, value)
+  values ('report_admin_hash', crypt(p_next, gen_salt('bf')))
+  on conflict (key) do update set value = excluded.value;
 
   return jsonb_build_object('ok', true);
 end;
@@ -2304,13 +2703,16 @@ revoke all on function public.am_delete_event(text, uuid)                       
 revoke all on function public.am_restore_event(text, uuid)                      from public;
 revoke all on function public.am_get_event_note(text, uuid)                     from public;
 revoke all on function public.am_save_event_note(text, uuid, jsonb, integer, integer) from public;
-revoke all on function public.am_get_reports(text, date)                        from public;
-revoke all on function public.am_report_begin(text, date, uuid)                 from public;
-revoke all on function public.am_report_commit(text, date, uuid, text, text, integer, integer) from public;
-revoke all on function public.am_report_delete(text, date, uuid)                from public;
-revoke all on function public.am_report_read(text, text[])                      from public;
-revoke all on function public.am_report_close(text, date)                       from public;
-revoke all on function public.am_report_reopen(text, date)                      from public;
+revoke all on function public.am_get_reports(text, date, text[])                from public;
+revoke all on function public.am_report_begin(text, date, uuid, text)           from public;
+revoke all on function public.am_report_commit(text, date, uuid, text, text, integer, integer, text) from public;
+revoke all on function public.am_report_delete(text, date, uuid, text, text)    from public;
+revoke all on function public.am_report_read(text, date, text[], text[], text)  from public;
+revoke all on function public.am_report_close(text, date, text)                 from public;
+revoke all on function public.am_report_reopen(text, date, text)                from public;
+revoke all on function public.am_report_admin_check(text, text)                 from public;
+revoke all on function public.am_report_admin_change(text, text, text)          from public;
+revoke all on function public.am_report_admin_state(text)                       from public;
 revoke all on function public.am_push_targets(date, uuid, text, text)           from public, anon, authenticated;
 revoke all on function public.am_push_forget(text)                              from public, anon, authenticated;
 
@@ -2337,13 +2739,16 @@ grant execute on function public.am_delete_event(text, uuid)                    
 grant execute on function public.am_restore_event(text, uuid)                      to anon, authenticated;
 grant execute on function public.am_get_event_note(text, uuid)                     to anon, authenticated;
 grant execute on function public.am_save_event_note(text, uuid, jsonb, integer, integer) to anon, authenticated;
-grant execute on function public.am_get_reports(text, date)                        to anon, authenticated;
-grant execute on function public.am_report_begin(text, date, uuid)                 to anon, authenticated;
-grant execute on function public.am_report_commit(text, date, uuid, text, text, integer, integer) to anon, authenticated;
-grant execute on function public.am_report_delete(text, date, uuid)                to anon, authenticated;
-grant execute on function public.am_report_read(text, text[])                      to anon, authenticated;
-grant execute on function public.am_report_close(text, date)                       to anon, authenticated;
-grant execute on function public.am_report_reopen(text, date)                      to anon, authenticated;
+grant execute on function public.am_get_reports(text, date, text[])                to anon, authenticated;
+grant execute on function public.am_report_begin(text, date, uuid, text)           to anon, authenticated;
+grant execute on function public.am_report_commit(text, date, uuid, text, text, integer, integer, text) to anon, authenticated;
+grant execute on function public.am_report_delete(text, date, uuid, text, text)    to anon, authenticated;
+grant execute on function public.am_report_read(text, date, text[], text[], text)  to anon, authenticated;
+grant execute on function public.am_report_close(text, date, text)                 to anon, authenticated;
+grant execute on function public.am_report_reopen(text, date, text)                to anon, authenticated;
+grant execute on function public.am_report_admin_check(text, text)                 to anon, authenticated;
+grant execute on function public.am_report_admin_change(text, text, text)          to anon, authenticated;
+grant execute on function public.am_report_admin_state(text)                       to anon, authenticated;
 grant execute on function public.am_push_targets(date, uuid, text, text)           to service_role;
 grant execute on function public.am_push_forget(text)                              to service_role;
 
@@ -2368,10 +2773,17 @@ notify pgrst, 'reload schema';
 --  실수로 마감한 목장보고서 주를 다시 열기 (날짜를 바꿔서. 앱의 '마감 풀기'와 같아요)
 --    update public.report_weeks set closed_at = null where date = '2026-11-22';
 --
---  어떤 주일에 낸 목장보고서 보기 (날짜를 바꿔서)
+--  어떤 주일에 낸 목장보고서 목록 보기 (날짜를 바꿔서. 파일 내용은 Storage → am-reports 에서만 볼 수 있어요)
 --    select g.name as 목장, f.file_name as 파일, f.pages as 쪽, f.uploaded_at as 올린때 from public.report_files f join public.groups g on g.id = f.group_id where f.date = '2026-11-22' order by g.sort_order;
 --
+--  보고서 담당 비밀번호를 잊었을 때 → 0000 으로 되돌리기 (그다음 관리 탭에서 바로 바꿔 주세요)
+--    update public.app_settings set value = extensions.crypt('0000', extensions.gen_salt('bf')) where key = 'report_admin_hash';
+--
+--  담당 비밀번호를 여러 번 틀려서 막혔을 때 → 바로 풀기 (담당 비밀번호 기록만 지워요)
+--    delete from public.login_attempts where client_key like 'adm:%';
+--
 --  한 목장의 보고서를 '안 냄'으로 되돌리기 (목장 이름·날짜를 바꿔서. 파일은 Storage → am-reports 에서 따로 지워도 돼요)
+--  (앱에서는 낸 사람이 지우거나, 보고서 담당이 '담당 비밀번호로 지우기'로 지울 수 있어요)
 --    delete from public.report_files where date = '2026-11-22' and group_id = (select id from public.groups where name = '사랑' limit 1);
 --
 --  목장보고서 올리기·받기가 '허락'이 없다고 계속 실패할 때 → 허락표 비우기 (앱에서 다시 누르면 새로 만들어요)

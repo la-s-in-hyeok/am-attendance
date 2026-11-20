@@ -71,7 +71,8 @@ export default function App() {
       const el = document.activeElement
       return (
         el instanceof HTMLElement &&
-        el.closest('main') !== null &&
+        // 창(Sheet·PageSheet)은 body 에 따로 띄우므로 창 안의 입력칸도 함께 봐요
+        el.closest('main, [role="dialog"]') !== null &&
         (el.isContentEditable ||
           el.matches(
             'textarea, [contenteditable="true"], input:not([type=checkbox], [type=radio], [type=file], [type=range], [type=button], [type=submit], [type=date], [type=month])',

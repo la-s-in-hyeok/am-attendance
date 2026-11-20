@@ -7,13 +7,16 @@ import { useGroupReports } from './useGroupReports'
 import { useUploadFlow, type Converted, type FlowState } from './useUploadFlow'
 import { PreviewStrip, PreviewViewer, usePreviewUrls } from './PagePreviews'
 import { openReportPdf, useReportUrl } from './ReportUrl'
+import { PinSheet } from './PinSheet'
 import { kstDateTime, sizeLabel } from './format'
 
 /**
  * 목장 하나의 보고서 창.
  * - 마감 전·안 냄: '보고서 올리기' → PDF로 바꾸기 → 미리 보기 → [이대로 제출]
- * - 냄: 파일 카드 + [PDF 보기] (+ 마감 전 [다른 파일로 바꾸기] [삭제])
- * - 마감 후: 낸 목장은 보기만, 안 낸 목장은 안내만
+ * - 내가 냄: 파일 카드 + [PDF 보기] (+ 마감 전 [다른 파일로 바꾸기] [삭제])
+ * - 남이 냄: '제출했어요 · 쪽수 · 낸 시각' + 자물쇠 안내만 (열기·바꾸기·지우기 없음).
+ *   마감 전이면 작은 '담당 비밀번호로 지우기' (잘못 낸 것 정리용)
+ * - 마감 후: 낸 목장은 (내 것이면) 보기만, 안 낸 목장은 안내만
  */
 export function GroupSheet({
   date,
@@ -51,7 +54,10 @@ function SheetBody({
   const flow = useUploadFlow(date, group.id, group.name, onClose)
   const input = useRef<HTMLInputElement>(null)
   const [askDelete, setAskDelete] = useState(false)
+  const [askPin, setAskPin] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const hasPin = useGroupReports((s) => s.hasPin)
+  const mine = !!file?.mine && !!file.path
 
   const choose = () => input.current?.click()
   const st = flow.state
@@ -76,7 +82,8 @@ function SheetBody({
   const del = async () => {
     if (deleting) return
     setDeleting(true)
-    const ok = await useGroupReports.getState().remove(date, group.id)
+    // 남이 낸 보고서는 담당 비밀번호로만 지워요
+    const ok = await useGroupReports.getState().remove(date, group.id, !mine)
     setDeleting(false)
     if (ok) useStore.getState().toast(`${group.name} 목장 보고서를 지웠어요`, 'info')
   }
@@ -95,7 +102,23 @@ function SheetBody({
     <>
       {picker}
       <StatusLine done={!!file} closed={closed} />
-      {file ? (
+      {file && !mine ? (
+        <>
+          <OtherFileCard pages={file.pages} uploadedAt={file.uploadedAt} />
+          {!closed && (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={() => (hasPin ? setAskDelete(true) : setAskPin(true))}
+                disabled={deleting}
+                className="relative h-9 rounded-full px-2 text-[13px] font-medium text-ink-3 underline underline-offset-2 after:absolute after:inset-x-0 after:-inset-y-1 hover:text-danger disabled:opacity-60"
+              >
+                {deleting ? '지우는 중…' : '담당 비밀번호로 지우기'}
+              </button>
+            </div>
+          )}
+        </>
+      ) : file?.path ? (
         <>
           <FileCard file={file} />
           <div className="mt-4 space-y-2">
@@ -123,18 +146,66 @@ function SheetBody({
           <p className="mt-3 text-[13px] leading-relaxed text-ink-3">
             한글(hwp·hwpx), 워드(docx), PDF, 사진을 고르면 PDF로 바꿔서 내요. 마감 전에는 언제든 지우고 다시 올릴 수 있어요.
           </p>
+          <p className="mt-1.5 flex items-start gap-1.5 text-[13px] leading-relaxed text-ink-3">
+            <Icon name="lock" size={14} className="mt-[3px] shrink-0" />
+            낸 보고서는 낸 사람만 볼 수 있어요. 올린 휴대폰의 이 앱(홈 화면 앱이면 홈 화면 앱)에서 열어 주세요.
+          </p>
         </>
       )}
+      <PinSheet
+        open={askPin}
+        title="담당 비밀번호로 지우기"
+        message={`${group.name} 목장 보고서는 다른 사람이 냈어요. 보고서 담당 비밀번호를 넣으면 지울 수 있어요.`}
+        confirmLabel="다음"
+        onClose={() => setAskPin(false)}
+        // 비밀번호가 맞으면 같은 창에서 바로 확인 단계로
+        next={{
+          message: `다른 사람이 낸 ${group.name} 목장 보고서를 지울까요? 지우면 그 목장이 다시 올려야 해요.`,
+          confirmLabel: '지우기',
+          danger: true,
+          onConfirm: () => void del(),
+        }}
+      />
       <Confirm
         open={askDelete}
         title="보고서 지우기"
-        message={`${group.name} 목장 보고서를 지울까요? 지우면 다시 올릴 수 있어요.`}
+        message={
+          mine
+            ? `${group.name} 목장 보고서를 지울까요? 지우면 다시 올릴 수 있어요.`
+            : `다른 사람이 낸 ${group.name} 목장 보고서를 지울까요? 지우면 그 목장이 다시 올려야 해요.`
+        }
         confirmLabel="지우기"
         danger
         onClose={() => setAskDelete(false)}
         onConfirm={() => void del()}
       />
     </>
+  )
+}
+
+/** 남이 낸 보고서: 냈다는 것만 (파일 이름·내용은 낸 사람만 볼 수 있어요) */
+function OtherFileCard({ pages, uploadedAt }: { pages: number; uploadedAt: string }) {
+  const when = kstDateTime(uploadedAt)
+  return (
+    <div className="rounded-2xl border border-line bg-hover p-3.5">
+      <div className="flex items-center gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ok-soft text-ok" aria-hidden="true">
+          <Icon name="doc" size={22} />
+        </span>
+        <p className="tabular min-w-0 text-[15px] leading-snug font-bold">
+          제출했어요
+          {pages > 0 && <span className="font-semibold text-ink-2"> · {pages}쪽</span>}
+          {when && <span className="font-semibold text-ink-2"> · {when}</span>}
+        </p>
+      </div>
+      <p className="mt-3 flex items-start gap-2 border-t border-line pt-3 text-[14px] leading-relaxed text-ink-2">
+        <Icon name="lock" size={16} className="mt-[3px] shrink-0 text-ink-3" />
+        <span>
+          보고서는 낸 사람만 열어 볼 수 있어요.
+          <span className="mt-0.5 block text-[13px] text-ink-3">바꾸려면 낸 사람에게 부탁하거나, 보고서 담당에게 지워 달라고 해 주세요.</span>
+        </span>
+      </p>
+    </div>
   )
 }
 
@@ -163,14 +234,14 @@ function ClosedNote() {
 
 function FileCard({ file }: { file: ReportFile }) {
   const when = kstDateTime(file.uploadedAt)
-  const size = sizeLabel(file.sizeBytes)
+  const size = sizeLabel(file.sizeBytes ?? 0)
   return (
     <div className="flex items-start gap-3 rounded-2xl border border-line bg-hover p-3.5">
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ok-soft text-ok" aria-hidden="true">
         <Icon name="doc" size={22} />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] leading-snug font-bold [overflow-wrap:anywhere]">{file.fileName}</p>
+        <p className="text-[15px] leading-snug font-bold [overflow-wrap:anywhere]">{file.fileName ?? '보고서.pdf'}</p>
         <p className="tabular mt-0.5 text-[13px] text-ink-2">
           {file.pages > 0 ? `${file.pages}쪽` : 'PDF'}
           {size && ` · ${size}`}

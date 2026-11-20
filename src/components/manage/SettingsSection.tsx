@@ -5,13 +5,14 @@ import { useRecordList } from '../../hooks'
 import { Card, Confirm } from '../ui'
 import { HomeScreenHelpSheet } from './HomeScreenHelpSheet'
 import { PasscodeSheet } from './PasscodeSheet'
+import { ReportPinSheet } from './ReportPinSheet'
 import { ListCard, MenuRow, SectionTitle } from './parts'
 import { downloadBackup, resetDemoData } from './lib'
 import { useRosterSplit } from './useManage'
 
-type Open = null | 'pass' | 'help' | 'logout' | 'reset'
+type Open = null | 'pass' | 'reportPin' | 'help' | 'logout' | 'reset'
 
-/** 설정: 비밀번호, 백업, 홈 화면 추가, 로그아웃, 앱 정보 */
+/** 설정: 비밀번호, 목장보고서 담당 비밀번호, 백업, 홈 화면 추가, 로그아웃, 앱 정보 */
 export function SettingsSection() {
   const mode = useStore((s) => s.backend.mode)
   const logout = useStore((s) => s.logout)
@@ -49,6 +50,12 @@ export function SettingsSection() {
         <SectionTitle>설정</SectionTitle>
         <ListCard>
           <MenuRow icon="lock" title="비밀번호 바꾸기" sub="목자·총무가 함께 쓰는 비밀번호예요" onClick={() => setOpen('pass')} />
+          <MenuRow
+            icon="doc"
+            title="목장보고서 담당 비밀번호"
+            sub="보고서를 걷는 사람이 마감·합친 PDF에 쓰는 비밀번호예요"
+            onClick={() => setOpen('reportPin')}
+          />
           <MenuRow
             icon="download"
             title="데이터 백업 받기"
@@ -104,6 +111,7 @@ export function SettingsSection() {
       </div>
 
       {open === 'pass' && <PasscodeSheet onClose={() => setOpen(null)} />}
+      {open === 'reportPin' && <ReportPinSheet onClose={() => setOpen(null)} />}
       {open === 'help' && <HomeScreenHelpSheet onClose={() => setOpen(null)} />}
       <Confirm
         open={open === 'logout'}

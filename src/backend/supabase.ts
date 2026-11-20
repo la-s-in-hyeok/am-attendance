@@ -21,6 +21,7 @@ import {
 } from '../lib/types'
 import type { Backend, ChangeScope, GroupDayAction, GroupDayResult, PushSubscriptionInfo, Roster } from './types'
 import { parseNotice, pushConfigured } from '../lib/push'
+import { dateOfPath, ensureOwner, ownerFor, ownersFor } from './reportOwners'
 
 /**
  * 실제 서버 (Supabase): 모든 목자·총무가 같은 출석부를 함께 써요.
@@ -85,6 +86,7 @@ const WRITES = new Set([
   'am_report_delete',
   'am_report_close',
   'am_report_reopen',
+  'am_report_admin_change',
 ])
 
 export type BackendErrorKind = 'auth' | 'locked' | 'network' | 'setup' | 'invalid' | 'conflict' | 'server'
@@ -148,6 +150,11 @@ const MSG = {
   readDenied:
     '서버가 파일을 보여 주지 않았어요. 다시 눌러 주세요. 계속 안 되면 회장이 Supabase SQL Editor 에서 새 supabase/schema.sql 을 한 번 더 Run 해 주세요.',
   server: '서버에 잠시 문제가 있어요. 잠시 후 다시 시도해 주세요.',
+  notOwner: '다른 사람이 낸 보고서예요. 낸 사람만 바꾸거나 지울 수 있어요',
+  badPin: '담당 비밀번호가 맞지 않아요',
+  pinLocked: '비밀번호를 여러 번 틀려서 잠시 막혔어요. 10분 뒤에 다시 해 주세요',
+  invalidPin: '새 담당 비밀번호는 숫자 4~8자리로 정해 주세요.',
+  pinUnset: "아직 보고서 담당 비밀번호를 정하지 않았어요. 보고서를 걷는 사람이 관리 탭의 '목장보고서 담당 비밀번호'에서 먼저 정해 주세요.",
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +273,18 @@ function envelopeToError(code: string): BackendError {
       return new BackendError('network', MSG.uploadExpired, code)
     case 'not_uploaded':
       return new BackendError('network', MSG.notUploaded, code)
+    case 'not_owner':
+      // 다른 사람(다른 기기)이 낸 보고서: 서버가 아무것도 바꾸지 않았어요
+      return new BackendError('conflict', MSG.notOwner, code)
+    case 'bad_pin':
+      // 보고서 담당 비밀번호가 틀림 (공용 비밀번호와 달라서 로그아웃하지 않아요)
+      return new BackendError('invalid', MSG.badPin, code)
+    case 'pin_locked':
+      return new BackendError('locked', MSG.pinLocked, code)
+    case 'invalid_pin':
+      return new BackendError('invalid', MSG.invalidPin, code)
+    case 'pin_unset':
+      return new BackendError('invalid', MSG.pinUnset, code)
     default:
       return new BackendError('server', MSG.server, code)
   }
@@ -408,17 +427,15 @@ function toEventNote(v: unknown): EventNote {
   }
 }
 
+/** 서버의 보고서 한 줄. 내 것(mine)만 경로·파일 이름·크기가 와요 (경로가 없으면 내 것으로 보지 않아요) */
 function toReportFile(v: unknown): ReportFile | null {
   const r = isObject(v) ? v : {}
-  if (typeof r.groupId !== 'string' || !r.groupId || typeof r.path !== 'string' || !r.path) return null
-  return {
-    groupId: r.groupId,
-    path: r.path,
-    fileName: str(r.fileName, '보고서.pdf'),
-    pages: num(r.pages),
-    sizeBytes: num(r.sizeBytes),
-    uploadedAt: str(r.uploadedAt),
+  if (typeof r.groupId !== 'string' || !r.groupId) return null
+  const base = { groupId: r.groupId, pages: num(r.pages), uploadedAt: str(r.uploadedAt) }
+  if (r.mine === true && typeof r.path === 'string' && r.path) {
+    return { ...base, mine: true, path: r.path, fileName: str(r.fileName, '보고서.pdf'), sizeBytes: num(r.sizeBytes) }
   }
+  return { ...base, mine: false }
 }
 
 function strings(v: unknown): string[] {
@@ -602,14 +619,14 @@ export class SupabaseBackend implements Backend {
 
   /**
    * 로그인한 비밀번호를 붙여서 호출. 비밀번호가 바뀌었으면 더 보내지 않고 다시 로그인하게 해요.
-   * allow: 오류가 아니라 결과로 돌려받을 서버 값 (예: 'exists')
+   * allow: 오류가 아니라 결과로 돌려받을 서버 값 (예: 'exists'. 여러 개면 배열)
    */
-  private async call(fn: string, args: Json = {}, tries = 2, allow?: string): Promise<unknown> {
+  private async call(fn: string, args: Json = {}, tries = 2, allow?: string | readonly string[]): Promise<unknown> {
     const code = this.code
     if (!code) throw new BackendError('auth', MSG.needLogin, 'no_login')
     const data = await this.rpc(fn, { p_code: code, ...args }, tries)
     const err = envelopeError(data)
-    if (err && err !== allow) {
+    if (err && !(typeof allow === 'string' ? err === allow : allow?.includes(err))) {
       // 다른 기기에서 비밀번호를 바꾼 경우: 틀린 비밀번호로 계속 보내 잠기지 않도록 여기서 멈춰요
       if (err === 'bad_code' && this.code === code) this.code = null
       throw envelopeToError(err)
@@ -1001,7 +1018,7 @@ export class SupabaseBackend implements Backend {
   //  그다음 Storage API 로 올리기·받기·지우기를 해요.
 
   /** 보고서 함수 부르기. 서버에 함수가 없으면(예전 schema.sql) 회장에게 다시 Run 해 달라는 안내로 바꿔요 */
-  private async reportCall(fn: string, args: Json, tries = 2, allow?: string): Promise<unknown> {
+  private async reportCall(fn: string, args: Json, tries = 2, allow?: string | readonly string[]): Promise<unknown> {
     try {
       return await this.call(fn, args, tries, allow)
     } catch (e) {
@@ -1024,19 +1041,46 @@ export class SupabaseBackend implements Backend {
     }
   }
 
-  /** 받기 허락표 받기 (60개씩). 서버 목록에 있는 경로만 돌려줘요 */
-  private async allowRead(paths: string[]): Promise<Set<string>> {
+  /**
+   * 내 보고서 받기 허락표 받기 (60개씩). 서버는 이 기기의 주인 열쇠로 낸 보고서 경로만 돌려줘요
+   * (남이 낸 보고서는 경로를 알아도 허락하지 않아요)
+   */
+  private async allowRead(date: ISODate | null, paths: string[]): Promise<Set<string>> {
     const ok = new Set<string>()
     const list = [...new Set(paths)]
+    const owners = date ? ownersFor(date) : []
+    if (owners.length === 0) return ok
     for (let i = 0; i < list.length; i += REPORT_READ_CHUNK) {
-      const data = await this.reportCall('am_report_read', { p_paths: list.slice(i, i + REPORT_READ_CHUNK) }, 3)
+      const data = await this.reportCall(
+        'am_report_read',
+        { p_date: date, p_paths: list.slice(i, i + REPORT_READ_CHUNK), p_owners: owners, p_admin: null },
+        3,
+      )
       for (const p of strings(isObject(data) ? data.paths : null)) ok.add(p)
     }
     return ok
   }
 
+  /** 보관함에서 PDF 하나 받기 (인터넷이 잠깐 끊기면 한 번 더). 못 받으면 null */
+  private async downloadObject(path: string): Promise<Uint8Array | null> {
+    const sb = this.client()
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const { data, error } = await sb.storage.from(REPORT_BUCKET).download(path)
+        if (!error && data) return new Uint8Array(await data.arrayBuffer())
+        console.warn('[supabase] 보고서 받기 실패', path, error)
+        const status = isObject(error) && typeof error.status === 'number' ? error.status : 0
+        if (status && !isRetryable(status)) break
+      } catch (e) {
+        console.warn('[supabase] 보고서 받기 실패', path, e)
+      }
+      if (attempt < 2) await sleep(700)
+    }
+    return null
+  }
+
   async fetchReports(date: ISODate): Promise<ReportWeek> {
-    const data = await this.reportCall('am_get_reports', { p_date: date }, 3)
+    const data = await this.reportCall('am_get_reports', { p_date: date, p_owners: ownersFor(date) }, 3)
     const r = isObject(data) ? data : {}
     return {
       date,
@@ -1046,16 +1090,18 @@ export class SupabaseBackend implements Backend {
   }
 
   /**
-   * 1) am_report_begin: 마감 전인지 보고, 새 경로와 올리기 허락표를 받아요
+   * 1) am_report_begin: 마감 전인지·남이 낸 보고서가 아닌지 보고, 새 경로와 올리기 허락표를 받아요
    * 2) Storage 에 PDF 올리기 (덮어쓰기 없음: 경로가 매번 새 uuid)
-   * 3) am_report_commit: 목록에 적기. 예전 파일이 있었으면 그 경로를 받아서 지워요 (실패해도 무시)
-   * 그사이 마감됐으면 방금 올린 파일을 지우고 'closed' 오류를 내요.
+   * 3) am_report_commit: 목록에 적기 (낸 사람 = 이 기기의 주인 열쇠). 예전 파일이 있었으면 그 경로를 받아서 지워요 (실패해도 무시)
+   * 그사이 마감됐거나 다른 사람이 먼저 냈으면 방금 올린 파일을 지우고 'closed' / 'not_owner' 오류를 내요.
    */
   async uploadReport(date: ISODate, groupId: string, pdf: Uint8Array, fileName: string, pages: number): Promise<ReportFile> {
     if (!(pdf instanceof Uint8Array) || pdf.byteLength === 0) throw new BackendError('invalid', MSG.invalid, 'invalid')
     if (pdf.byteLength > REPORT_MAX_BYTES) throw new BackendError('invalid', MSG.fileTooBig, 'too_big')
     const file = await this.lane(`report:${date}`, async () => {
-      const begin = await this.reportCall('am_report_begin', { p_date: date, p_group_id: groupId }, 2)
+      // 내가 낸 것을 바꿀 때는 같은 열쇠를 써야 해서, 있으면 그 열쇠를 그대로 써요
+      const owner = ensureOwner(date, groupId)
+      const begin = await this.reportCall('am_report_begin', { p_date: date, p_group_id: groupId, p_owner: owner }, 2)
       const path = isObject(begin) ? str(begin.path) : ''
       if (!path) throw new BackendError('server', MSG.server, 'no_path')
 
@@ -1085,24 +1131,21 @@ export class SupabaseBackend implements Backend {
         p_file_name: (fileName ?? '').trim().slice(0, 200),
         p_pages: Math.max(0, Math.round(pages) || 0),
         p_size: pdf.byteLength,
+        p_owner: owner,
       }
-      let data: unknown
-      try {
-        // 마감됐거나 목장이 없어졌으면 서버가 방금 올린 파일의 지우기 허락표를 같이 줘요
-        data = await this.reportCall('am_report_commit', args, 1, 'closed')
-      } catch (e) {
-        if (e instanceof BackendError && e.code === 'no_group') void this.removeObjects([path])
-        throw e
-      }
-      if (envelopeError(data) === 'closed') {
+      // 마감됐거나 목장이 없어졌거나 그사이 남이 먼저 냈으면 서버가 방금 올린 파일의 지우기 허락표를 같이 줘요
+      const data = await this.reportCall('am_report_commit', args, 1, ['closed', 'no_group', 'not_owner'])
+      const err = envelopeError(data)
+      if (err) {
         if (isObject(data) && typeof data.orphan === 'string') await this.removeObjects([data.orphan])
-        throw envelopeToError('closed')
+        throw envelopeToError(err)
       }
       const r = isObject(data) ? data : {}
       if (typeof r.oldPath === 'string' && r.oldPath && r.oldPath !== path) await this.removeObjects([r.oldPath])
       return (
         toReportFile(r.file) ?? {
           groupId,
+          mine: true,
           path,
           fileName: args.p_file_name || '보고서.pdf',
           pages: args.p_pages,
@@ -1115,41 +1158,33 @@ export class SupabaseBackend implements Backend {
     return file
   }
 
-  async deleteReport(date: ISODate, groupId: string): Promise<void> {
+  async deleteReport(date: ISODate, groupId: string, adminPin?: string): Promise<void> {
     const data = await this.lane(`report:${date}`, () =>
-      this.reportCall('am_report_delete', { p_date: date, p_group_id: groupId }),
+      this.reportCall('am_report_delete', {
+        p_date: date,
+        p_group_id: groupId,
+        p_owner: ownerFor(date, groupId),
+        p_admin: adminPin || null,
+      }),
     )
     this.notify('reports')
     const path = isObject(data) ? data.path : null
     if (typeof path === 'string' && path) await this.removeObjects([path])
   }
 
-  async downloadReports(paths: string[]): Promise<{ path: string; bytes: Uint8Array | null }[]> {
-    if (paths.length === 0) return []
-    const allowed = await this.allowRead(paths)
-    const sb = this.client()
-    return mapLimit(paths, REPORT_PARALLEL, async (path) => {
-      if (!allowed.has(path)) return { path, bytes: null }
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const { data, error } = await sb.storage.from(REPORT_BUCKET).download(path)
-          if (!error && data) return { path, bytes: new Uint8Array(await data.arrayBuffer()) }
-          console.warn('[supabase] 보고서 받기 실패', path, error)
-          // 인터넷이 잠깐 끊긴 경우만 한 번 더
-          const status = isObject(error) && typeof error.status === 'number' ? error.status : 0
-          if (status && !isRetryable(status)) break
-        } catch (e) {
-          console.warn('[supabase] 보고서 받기 실패', path, e)
-        }
-        if (attempt < 2) await sleep(700)
-      }
-      return { path, bytes: null }
-    })
+  /** 담당 비밀번호로 그 주일의 모든 보고서 받기 허락표를 받고, 4개씩 나눠 받아요 */
+  async downloadAllReports(date: ISODate, adminPin: string): Promise<{ groupId: string; bytes: Uint8Array | null }[]> {
+    const data = await this.reportCall('am_report_read', { p_date: date, p_paths: null, p_owners: null, p_admin: adminPin }, 2)
+    const files = asArray(isObject(data) ? data.files : null)
+      .map((v) => (isObject(v) && typeof v.groupId === 'string' && typeof v.path === 'string' && v.path ? { groupId: v.groupId, path: v.path } : null))
+      .filter(notNull)
+    return mapLimit(files, REPORT_PARALLEL, async (f) => ({ groupId: f.groupId, bytes: await this.downloadObject(f.path) }))
   }
 
-  /** 10분 동안 열 수 있는 서명 주소. downloadName 을 주면 그 이름으로 받아져요 */
+  /** 10분 동안 열 수 있는 서명 주소 (이 기기가 낸 보고서만). downloadName 을 주면 그 이름으로 받아져요 */
   async reportFileUrl(path: string, downloadName?: string): Promise<string> {
-    const allowed = await this.allowRead([path])
+    const allowed = await this.allowRead(dateOfPath(path), [path])
+    // 내 보고서로 받은 경로인데 허락이 안 나면, 그사이 지워졌거나(담당이 지움 등) 바뀐 경우예요
     if (!allowed.has(path)) throw new BackendError('conflict', MSG.reportGone, 'not_found')
     const sb = this.client()
     let res: { data: { signedUrl: string } | null; error: unknown }
@@ -1165,8 +1200,8 @@ export class SupabaseBackend implements Backend {
     return res.data.signedUrl
   }
 
-  async closeReports(date: ISODate): Promise<string> {
-    const data = await this.lane(`report:${date}`, () => this.reportCall('am_report_close', { p_date: date }))
+  async closeReports(date: ISODate, adminPin: string): Promise<string> {
+    const data = await this.lane(`report:${date}`, () => this.reportCall('am_report_close', { p_date: date, p_admin: adminPin }))
     this.notify('reports')
     const r = isObject(data) ? data : {}
     // 1년 지난 파일·목록에 없는 파일 정리 (기다리지 않아요. 실패하면 다음 마감 때 다시)
@@ -1175,9 +1210,23 @@ export class SupabaseBackend implements Backend {
     return typeof r.closedAt === 'string' && r.closedAt ? r.closedAt : new Date().toISOString()
   }
 
-  async reopenReports(date: ISODate): Promise<void> {
-    await this.lane(`report:${date}`, () => this.reportCall('am_report_reopen', { p_date: date }))
+  async reopenReports(date: ISODate, adminPin: string): Promise<void> {
+    await this.lane(`report:${date}`, () => this.reportCall('am_report_reopen', { p_date: date, p_admin: adminPin }))
     this.notify('reports')
+  }
+
+  async checkReportPin(pin: string): Promise<void> {
+    await this.reportCall('am_report_admin_check', { p_pin: pin }, 2)
+  }
+
+  async reportPinIsSet(): Promise<boolean> {
+    const data = await this.reportCall('am_report_admin_state', {}, 3)
+    return isObject(data) && data.set === true
+  }
+
+  async changeReportPin(current: string | null, next: string): Promise<void> {
+    if (!/^[0-9]{4,8}$/.test(next)) throw new BackendError('invalid', MSG.invalidPin, 'invalid_pin')
+    await this.reportCall('am_report_admin_change', { p_current: current || null, p_next: next }, 1)
   }
 
   // --- 실시간 알림 --------------------------------------------------------------

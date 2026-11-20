@@ -9,6 +9,9 @@ import { useStore } from '../../store'
  *   화면이 보이는 동안에는 30초마다, 앱으로 돌아올 때도 새로 받아요.
  * - 마감된 주는 낸 보고서들을 이 기기에서 미리 한 PDF로 합쳐 둬요(서버에는 저장하지 않아요).
  *   삼성 인터넷은 누르고 5초가 지나서 시작한 내려받기를 막아서, 누르자마자 받을 수 있게 미리 준비해요.
+ * - 마감·마감 풀기·합친 PDF·남의 보고서 지우기는 '보고서 담당 비밀번호'가 있어야 해요.
+ *   한 번 맞게 넣으면 이 앱을 켜 둔 동안만 메모리에 기억해요 (저장하지 않아요. 새로고침·로그아웃하면 잊어요).
+ *   미리 합치기도 담당 비밀번호를 기억하고 있을 때만 해요.
  */
 
 export type WeekStatus = 'loading' | 'ready' | 'error'
@@ -22,14 +25,16 @@ export interface ReportLoadError {
 
 /** 합칠 보고서 하나 (목장 순서대로) */
 export interface MergePart {
-  path: string
+  groupId: string
   /** 목장 이름 (빠진 목장을 알려 줄 때 써요) */
   label: string
+  /** 낸 시각 (다시 낸 보고서면 바뀌어서 다시 합쳐요) */
+  stamp: string
 }
 
 export interface MergeState {
   date: ISODate
-  /** 합친 파일들의 경로를 이은 것. 낸 보고서가 바뀌면 다시 합쳐요 */
+  /** 합친 보고서들(목장·낸 시각)을 이은 것. 낸 보고서가 바뀌면 다시 합쳐요 */
   key: string
   status: 'working' | 'ready' | 'error'
   step: 'download' | 'merge'
@@ -45,11 +50,16 @@ export interface MergeState {
 /** 올리기 결과: ok / 그사이 마감됨 / 실패(토스트로 알렸어요) */
 export type UploadOutcome = 'ok' | 'closed' | 'fail'
 
+/** 담당 비밀번호 확인 결과 (틀렸으면 창 안에 보여 줄 문구) */
+export type PinCheck = { ok: true } | { ok: false; message: string }
+
 interface ReportsState {
   weeks: Record<ISODate, ReportWeek>
   status: Record<ISODate, WeekStatus>
   error: ReportLoadError | null
   merge: MergeState | null
+  /** 보고서 담당 비밀번호를 이 앱이 기억하고 있는지 (비밀번호 자체는 상태에 두지 않아요) */
+  hasPin: boolean
 
   load(date: ISODate): Promise<void>
   /** 지금 보는 주일(또는 date)을 조용히 새로 받기 */
@@ -58,11 +68,20 @@ interface ReportsState {
   start(): () => void
 
   upload(date: ISODate, groupId: string, pdf: Uint8Array, fileName: string, pages: number): Promise<UploadOutcome>
-  remove(date: ISODate, groupId: string): Promise<boolean>
+  /** 지우기. asAdmin 이면 기억해 둔 담당 비밀번호로 (남이 낸 보고서 정리) */
+  remove(date: ISODate, groupId: string, asAdmin?: boolean): Promise<boolean>
+  /** 마감·마감 풀기 (기억해 둔 담당 비밀번호로) */
   close(date: ISODate): Promise<boolean>
   reopen(date: ISODate): Promise<boolean>
-  /** 마감된 주의 보고서를 한 PDF로 합쳐 둬요. 같은 파일들로 이미 합쳤거나 합치는 중이면 그대로 */
+  /**
+   * 마감된 주의 보고서를 한 PDF로 합쳐 둬요 (담당 비밀번호를 기억하고 있을 때만).
+   * 같은 보고서들로 이미 합쳤거나 합치는 중이면 그대로
+   */
   prepareMerge(date: ISODate, parts: MergePart[], force?: boolean): Promise<void>
+  /** 담당 비밀번호 확인. 맞으면 이 앱을 켜 둔 동안 기억해요 */
+  verifyPin(pin: string): Promise<PinCheck>
+  /** 담당 비밀번호를 바꾼 뒤: 새 비밀번호를 기억해요 */
+  rememberPin(pin: string): void
   reset(): void
 }
 
@@ -107,7 +126,13 @@ function withFile(week: ReportWeek, file: ReportFile): ReportWeek {
 }
 
 export function mergeKey(parts: MergePart[]): string {
-  return parts.map((p) => p.path).join('|')
+  return parts.map((p) => `${p.groupId}@${p.stamp}`).join('|')
+}
+
+/** 담당 비밀번호가 틀렸거나(다른 기기에서 바꿈) 막혔거나 아직 정하지 않았다는 오류인지 (예상한 결과라 콘솔에 오류로 찍지 않아요) */
+export function isPinError(e: unknown): boolean {
+  const code = (e as { code?: string } | null)?.code
+  return code === 'bad_pin' || code === 'pin_locked' || code === 'pin_unset'
 }
 
 export const useGroupReports = create<ReportsState>((set, get) => {
@@ -117,6 +142,21 @@ export const useGroupReports = create<ReportsState>((set, get) => {
    * writes = 그 주에 서버로 보내는 중인 저장 수
    */
   const changes = new Map<ISODate, number>()
+  /** 보고서 담당 비밀번호 (메모리에만. 새로고침·로그아웃하면 사라져요) */
+  let adminPin: string | null = null
+  const forgetPin = () => {
+    adminPin = null
+    if (get().hasPin) set({ hasPin: false })
+  }
+  /** 담당 비밀번호로 한 일이 실패: 비밀번호 문제면 잊고 알려요 (다시 넣게) */
+  const pinFail = (e: unknown, fallback: string) => {
+    if (isPinError(e)) {
+      forgetPin()
+      useStore.getState().toast(koreanMessage(e, '담당 비밀번호가 맞지 않아요'), 'error')
+      return
+    }
+    failToast(e, fallback)
+  }
   const writes = new Map<ISODate, number>()
   /** 로그아웃으로 비울 때마다 올라가요 (그 전에 시작한 받아 오기는 버려요) */
   let epoch = 0
@@ -179,6 +219,7 @@ export const useGroupReports = create<ReportsState>((set, get) => {
     status: {},
     error: null,
     merge: null,
+    hasPin: false,
 
     async load(date) {
       if (!useStore.getState().authed) return
@@ -266,12 +307,14 @@ export const useGroupReports = create<ReportsState>((set, get) => {
       }
     },
 
-    async remove(date, groupId) {
+    async remove(date, groupId, asAdmin) {
+      const pin = asAdmin ? adminPin : null
+      if (asAdmin && !pin) return false
       const removed = get().weeks[date]?.files.find((f) => f.groupId === groupId) ?? null
       begin(date)
       patchWeek(date, (w) => ({ ...w, files: w.files.filter((f) => f.groupId !== groupId) }))
       try {
-        await backend().deleteReport(date, groupId)
+        await backend().deleteReport(date, groupId, pin ?? undefined)
         return true
       } catch (e) {
         changed(date)
@@ -283,7 +326,7 @@ export const useGroupReports = create<ReportsState>((set, get) => {
           useStore.getState().toast('이미 마감돼서 지울 수 없어요', 'error')
           return false
         }
-        failToast(e, '지우지 못했어요. 인터넷 연결을 확인해 주세요.')
+        pinFail(e, '지우지 못했어요. 인터넷 연결을 확인해 주세요.')
         return false
       } finally {
         settle(date)
@@ -291,9 +334,11 @@ export const useGroupReports = create<ReportsState>((set, get) => {
     },
 
     async close(date) {
+      const pin = adminPin
+      if (!pin) return false
       begin(date)
       try {
-        const closedAt = await backend().closeReports(date)
+        const closedAt = await backend().closeReports(date, pin)
         changed(date)
         patchWeek(date, (w) => ({ ...w, closedAt }))
         // 마감 직전에 다른 기기에서 낸 보고서가 아직 이 기기에 안 왔을 수 있어요: 서버의 최종 목록을 다시 받아요
@@ -301,7 +346,7 @@ export const useGroupReports = create<ReportsState>((set, get) => {
         return true
       } catch (e) {
         deferred.add(date)
-        failToast(e, '마감하지 못했어요. 인터넷 연결을 확인해 주세요.')
+        pinFail(e, '마감하지 못했어요. 인터넷 연결을 확인해 주세요.')
         return false
       } finally {
         settle(date)
@@ -309,16 +354,18 @@ export const useGroupReports = create<ReportsState>((set, get) => {
     },
 
     async reopen(date) {
+      const pin = adminPin
+      if (!pin) return false
       begin(date)
       try {
-        await backend().reopenReports(date)
+        await backend().reopenReports(date, pin)
         changed(date)
         patchWeek(date, (w) => ({ ...w, closedAt: null }))
         if (get().merge?.date === date) set({ merge: null })
         return true
       } catch (e) {
         deferred.add(date)
-        failToast(e, '마감을 풀지 못했어요. 인터넷 연결을 확인해 주세요.')
+        pinFail(e, '마감을 풀지 못했어요. 인터넷 연결을 확인해 주세요.')
         return false
       } finally {
         settle(date)
@@ -333,6 +380,12 @@ export const useGroupReports = create<ReportsState>((set, get) => {
         set({ merge: null })
         return
       }
+      const pin = adminPin
+      // 담당 비밀번호를 모르면 합치지 않아요 ([합친 PDF 받기]를 누르면 물어봐요)
+      if (!pin) {
+        if (cur?.date === date) set({ merge: null })
+        return
+      }
       const base: MergeState = { date, key, status: 'working', step: 'download', count: parts.length, blob: null, pages: 0, skipped: [], message: null }
       set({ merge: base })
       const still = () => {
@@ -340,16 +393,20 @@ export const useGroupReports = create<ReportsState>((set, get) => {
         return m !== null && m.date === date && m.key === key
       }
       try {
-        const got = await backend().downloadReports(parts.map((p) => p.path))
+        const got = await backend().downloadAllReports(date, pin)
         if (!still()) return
-        const byPath = new Map(got.map((g) => [g.path, g.bytes]))
+        const byGroup = new Map(got.map((g) => [g.groupId.toLowerCase(), g.bytes]))
         const ready: { bytes: Uint8Array; label: string }[] = []
         const skipped: string[] = []
         for (const p of parts) {
-          const bytes = byPath.get(p.path)
+          const key = p.groupId.toLowerCase()
+          const bytes = byGroup.get(key)
+          byGroup.delete(key)
           if (bytes) ready.push({ bytes, label: p.label })
           else skipped.push(p.label)
         }
+        // 화면 목록에 아직 없던 보고서(마감 직전에 낸 것)도 뒤에 붙여요
+        for (const bytes of byGroup.values()) if (bytes) ready.push({ bytes, label: '목장' })
         if (ready.length === 0) throw new Error('보고서를 받지 못했어요. 인터넷 연결을 확인하고 다시 해 주세요.')
         set({ merge: { ...base, step: 'merge' } })
         const { mergePdfs } = await import('../../lib/convert')
@@ -360,21 +417,49 @@ export const useGroupReports = create<ReportsState>((set, get) => {
         const blob = new Blob([out.pdf as BlobPart], { type: 'application/pdf' })
         set({ merge: { ...base, status: 'ready', step: 'merge', blob, pages: out.pages, skipped } })
       } catch (e) {
-        console.error(e)
+        if (!isPinError(e)) console.error(e)
         if (handleReportAuthError(e)) return
         if (!still()) return
+        if (isPinError(e)) {
+          // 다른 기기에서 담당 비밀번호를 바꿨어요: 잊고, 누르면 다시 묻게
+          forgetPin()
+          set({ merge: null })
+          useStore.getState().toast(koreanMessage(e, '담당 비밀번호가 맞지 않아요'), 'error')
+          return
+        }
         set({ merge: { ...base, status: 'error', message: koreanMessage(e, '보고서를 합치지 못했어요. 인터넷 연결을 확인하고 다시 해 주세요.') } })
       }
     },
 
+    async verifyPin(pin) {
+      if (!/^[0-9]{4,8}$/.test(pin)) return { ok: false, message: '담당 비밀번호는 숫자 4~8자리예요' }
+      try {
+        await backend().checkReportPin(pin)
+        adminPin = pin
+        set({ hasPin: true })
+        return { ok: true }
+      } catch (e) {
+        // 틀림·막힘·정하기 전은 예상한 결과라 창 안에만 알려요 (콘솔에 오류로 남기지 않아요)
+        if (!isPinError(e)) console.error(e)
+        if (handleReportAuthError(e)) return { ok: false, message: '다시 로그인해 주세요.' }
+        return { ok: false, message: koreanMessage(e, '확인하지 못했어요. 인터넷 연결을 확인해 주세요.') }
+      }
+    },
+
+    rememberPin(pin) {
+      adminPin = pin
+      set({ hasPin: true })
+    },
+
     reset() {
       epoch++
+      adminPin = null
       changes.clear()
       deferred.clear()
       loading.clear()
       if (gatherTimer) clearTimeout(gatherTimer)
       gatherTimer = null
-      set({ weeks: {}, status: {}, error: null, merge: null })
+      set({ weeks: {}, status: {}, error: null, merge: null, hasPin: false })
     },
   }
 })

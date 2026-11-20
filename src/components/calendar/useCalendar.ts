@@ -41,6 +41,8 @@ interface CalState {
   setMonth(ym: string): void
   goToday(): void
   selectDay(d: DayISO): void
+  /** 그 날을 고르고, 다른 달이면 그 달로 넘겨요 (지난달·다음 달 칸의 날짜를 눌렀을 때) */
+  showDay(d: DayISO): void
   setDragging(v: boolean): void
 
   /** 추가·수정. 성공하면 저장된 일정, 실패하면 null (화면도 원래대로) */
@@ -221,6 +223,10 @@ export const useCalendar = create<CalState>((set, get) => {
     },
     selectDay(d) {
       set({ selectedDay: d })
+    },
+    showDay(d) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return
+      set({ selectedDay: d, viewMonth: monthKey(d) })
     },
     setDragging(v) {
       set({ dragging: v })

@@ -6,6 +6,7 @@ import { mergeKey, useGroupReports, type MergePart, type MergeState } from '../c
 import { ReportTiles } from '../components/groupReport/ReportTiles'
 import { GroupSheet } from '../components/groupReport/GroupSheet'
 import { CloseBar, MergedBar } from '../components/groupReport/ReportBar'
+import { PinSheet } from '../components/groupReport/PinSheet'
 import { kstDateTime } from '../components/groupReport/format'
 
 /** 목장보고서 탭: 이번 주 목장별 제출 현황 · 올리기 · 마감하고 한 PDF로 합치기 */
@@ -19,8 +20,11 @@ export function GroupReportPage() {
   const status = useGroupReports((s) => s.status[date])
   const error = useGroupReports((s) => (s.error?.date === date ? s.error : null))
   const merge = useGroupReports((s) => (s.merge?.date === date ? s.merge : null))
+  const hasPin = useGroupReports((s) => s.hasPin)
   const [openId, setOpenId] = useState<string | null>(null)
   const [askReopen, setAskReopen] = useState(false)
+  /** 마감 풀기 전에 담당 비밀번호 묻기 (아직 기억하지 않았을 때) */
+  const [reopenPin, setReopenPin] = useState(false)
 
   // 화면이 보이는 동안: 실시간 알림 + 30초 새로고침
   useEffect(() => useGroupReports.getState().start(), [])
@@ -43,19 +47,19 @@ export function GroupReportPage() {
     for (const g of sorted) {
       const f = fileMap.get(g.id)
       if (!f) continue
-      out.push({ path: f.path, label: g.name })
+      out.push({ groupId: f.groupId, label: g.name, stamp: f.uploadedAt })
       used.add(g.id)
     }
-    for (const f of files) if (!used.has(f.groupId)) out.push({ path: f.path, label: '목장' })
+    for (const f of files) if (!used.has(f.groupId)) out.push({ groupId: f.groupId, label: '목장', stamp: f.uploadedAt })
     return out
   }, [files, fileMap, allGroups])
 
-  // 마감된 주를 열면 미리 합쳐 둬요 (누르자마자 받을 수 있게)
+  // 마감된 주를 열면 미리 합쳐 둬요 (누르자마자 받을 수 있게). 담당 비밀번호를 기억하고 있을 때만
   const partsKey = mergeKey(parts)
   useEffect(() => {
-    if (closed && parts.length > 0) void useGroupReports.getState().prepareMerge(date, parts)
+    if (closed && hasPin && parts.length > 0) void useGroupReports.getState().prepareMerge(date, parts)
     // parts 는 partsKey 가 같으면 같은 내용이라 partsKey 만 봐요
-  }, [closed, date, partsKey])
+  }, [closed, hasPin, date, partsKey])
 
   const submitted = groups.filter((g) => fileMap.has(g.id)).length
   const missing = groups.filter((g) => !fileMap.has(g.id))
@@ -103,13 +107,19 @@ export function GroupReportPage() {
               submitted={submitted}
               total={groups.length}
               closedAt={week.closedAt}
-              onReopen={() => setAskReopen(true)}
+              onReopen={() => (hasPin ? setAskReopen(true) : setReopenPin(true))}
             />
             <ReportTiles groups={groups} fileOf={fileOf} onOpen={setOpenId} />
           </section>
-          {closed && (
+          {closed && hasPin && (
             <MergeNote merge={merge} count={parts.length} onRetry={() => void useGroupReports.getState().prepareMerge(date, parts, true)} />
           )}
+          <p className="mt-3 flex items-start gap-1.5 px-1 text-[13px] leading-relaxed text-ink-3">
+            <Icon name="lock" size={14} className="mt-[3px] shrink-0" />
+            <span>
+              보고서는 낸 사람(올린 휴대폰)만 열어 볼 수 있어요. 마감·합친 PDF는 보고서 담당만 할 수 있어요.
+            </span>
+          </p>
           {closed ? <MergedBar date={date} merge={merge} parts={parts} /> : <CloseBar date={date} groups={groups} missing={missing} submitted={parts.length} />}
         </>
       )}
@@ -120,6 +130,20 @@ export function GroupReportPage() {
         file={openGroup ? fileMap.get(openGroup.id) : undefined}
         closed={closed}
         onClose={() => setOpenId(null)}
+      />
+      <PinSheet
+        open={reopenPin}
+        title="마감 풀기"
+        message="마감을 풀면 목장들이 다시 올리거나 지울 수 있어요. 보고서 담당 비밀번호를 넣어 주세요."
+        confirmLabel="마감 풀기"
+        onClose={() => setReopenPin(false)}
+        onVerified={() => {
+          setReopenPin(false)
+          void useGroupReports
+            .getState()
+            .reopen(date)
+            .then((ok) => ok && useStore.getState().toast('마감을 풀었어요', 'info'))
+        }}
       />
       <Confirm
         open={askReopen}

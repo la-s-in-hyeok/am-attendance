@@ -122,23 +122,41 @@ export interface Backend {
    */
   saveEventNote(eventId: string, doc: unknown, plainLen: number, baseVersion: number, force?: boolean): Promise<SaveNoteResult>
 
-  /* ── 목장보고서 ── */
+  /* ── 목장보고서 ──
+   * 낸 보고서는 낸 사람(올린 휴대폰·브라우저)만 열고·바꾸고·지울 수 있어요 (서버가 확인해요).
+   * 이 기기가 낸 것은 이 기기의 '주인 열쇠'(reportOwners.ts)로 알아봐요.
+   * 마감·마감 풀기·합친 PDF·남의 보고서 지우기는 '보고서 담당 비밀번호'(adminPin)가 있어야 해요.
+   * 담당 비밀번호가 틀리면 오류 code 'bad_pin', 여러 번 틀려 막히면 'pin_locked' (kind 는 'auth' 가 아니라서 로그아웃하지 않아요)
+   * 담당 비밀번호가 비어 있으면 'pin_unset' (처음 값은 0000. 서버에서 일부러 비웠을 때만)
+   */
 
-  /** 그 주일의 마감 여부와 낸 보고서 목록 */
+  /** 그 주일의 마감 여부와 낸 보고서 목록 (내 것만 mine = true 와 경로·파일 이름) */
   fetchReports(date: ISODate): Promise<ReportWeek>
   /**
-   * 보고서(이미 PDF 로 바꾼 것) 올리기. 그 목장이 이미 낸 게 있으면 새것으로 바꾸고 예전 파일은 지워요(지우기 실패는 무시).
-   * 마감된 주면 BackendError('conflict', …, 'closed')
+   * 보고서(이미 PDF 로 바꾼 것) 올리기. 이 기기가 낸 게 있으면 새것으로 바꾸고 예전 파일은 지워요(지우기 실패는 무시).
+   * 마감된 주면 'closed', 다른 사람이 낸 보고서가 있으면 'not_owner'
    */
   uploadReport(date: ISODate, groupId: string, pdf: Uint8Array, fileName: string, pages: number): Promise<ReportFile>
-  /** 낸 보고서 지우기 (마감 전만. 마감됐으면 'closed') */
-  deleteReport(date: ISODate, groupId: string): Promise<void>
-  /** PDF 내려받기 (합치기용). 못 받은 것은 bytes: null */
-  downloadReports(paths: string[]): Promise<{ path: string; bytes: Uint8Array | null }[]>
-  /** 'PDF 보기'용 주소 (서버: 10분짜리 서명 주소, 체험 모드: blob 주소). downloadName 을 주면 그 이름으로 받기 */
+  /**
+   * 낸 보고서 지우기 (마감 전만. 마감됐으면 'closed').
+   * adminPin 이 없으면 이 기기가 낸 것만 ('not_owner'), 있으면 담당으로 누구 것이든 지워요
+   */
+  deleteReport(date: ISODate, groupId: string, adminPin?: string): Promise<void>
+  /** 합친 PDF 용: 그 주일의 모든 보고서 PDF 받기 (담당만). 못 받은 것은 bytes: null */
+  downloadAllReports(date: ISODate, adminPin: string): Promise<{ groupId: string; bytes: Uint8Array | null }[]>
+  /**
+   * 'PDF 보기'용 주소 (서버: 10분짜리 서명 주소, 체험 모드: blob 주소). 이 기기가 낸 보고서만.
+   * downloadName 을 주면 그 이름으로 받기
+   */
   reportFileUrl(path: string, downloadName?: string): Promise<string>
-  /** 마감하기 (이미 마감됐으면 그대로). 마감 시각을 돌려줘요 */
-  closeReports(date: ISODate): Promise<string>
-  /** 마감 풀기 (실수로 마감했을 때) */
-  reopenReports(date: ISODate): Promise<void>
+  /** 마감하기 (담당만. 이미 마감됐으면 그대로). 마감 시각을 돌려줘요 */
+  closeReports(date: ISODate, adminPin: string): Promise<string>
+  /** 마감 풀기 (담당만. 실수로 마감했을 때) */
+  reopenReports(date: ISODate, adminPin: string): Promise<void>
+  /** 보고서 담당 비밀번호가 맞는지만 확인 (틀리면 'bad_pin' / 'pin_locked' / 'pin_unset' 오류) */
+  checkReportPin(pin: string): Promise<void>
+  /** 보고서 담당 비밀번호를 정했는지 */
+  reportPinIsSet(): Promise<boolean>
+  /** 보고서 담당 비밀번호 바꾸기 (숫자 4~8자리. 처음 값 0000). 비어 있는 서버에서 처음 정할 때만 current 가 없어도 돼요 */
+  changeReportPin(current: string | null, next: string): Promise<void>
 }

@@ -4,14 +4,20 @@ import { useStore } from '../../store'
 import { Button, Confirm } from '../ui'
 import { downloadBlob } from '../report/share'
 import { useGroupReports, type MergePart, type MergeState } from './useGroupReports'
+import { PinSheet } from './PinSheet'
 import { canShareFile, mergedFileName } from './format'
 
 /** 화면 아래에 붙는 막대 (출석보고의 '글 복사' 막대와 같은 자리·모양) */
 const BAR =
   'kb-hide sticky bottom-[calc(65px+env(safe-area-inset-bottom))] z-10 mt-4 mr-[calc(-1*max(1rem,env(safe-area-inset-right)))] ml-[calc(-1*max(1rem,env(safe-area-inset-left)))] flex gap-2.5 border-t border-line bg-bg/95 py-3 pr-[max(1rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))] backdrop-blur-xl md:pointer-events-none md:bottom-6 md:mx-0 md:justify-end md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none'
 
-/** 마감 전: [마감하기] → 안 낸 목장을 알려 주는 확인 창 → 마감하고 합치기 */
+/**
+ * 마감 전: [마감하기] → 보고서 담당 비밀번호 (이미 넣었으면 건너뛰어요)
+ * → 안 낸 목장을 알려 주는 확인 창 → 마감하고 합치기
+ */
 export function CloseBar({ date, groups, missing, submitted }: { date: ISODate; groups: Group[]; missing: Group[]; submitted: number }) {
+  const hasPin = useGroupReports((s) => s.hasPin)
+  const [askPin, setAskPin] = useState(false)
   const [ask, setAsk] = useState(false)
   const [busy, setBusy] = useState(false)
   const order = groups.length > 1 ? `${groups[0].name} → ${groups[groups.length - 1].name} 순서로 ` : ''
@@ -32,10 +38,24 @@ export function CloseBar({ date, groups, missing, submitted }: { date: ISODate; 
   return (
     <>
       <div className={BAR}>
-        <Button icon="lock" className="pointer-events-auto flex-1 md:min-w-64 md:flex-none" onClick={() => setAsk(true)} disabled={busy}>
+        <Button
+          icon="lock"
+          className="pointer-events-auto flex-1 md:min-w-64 md:flex-none"
+          onClick={() => (hasPin ? setAsk(true) : setAskPin(true))}
+          disabled={busy}
+        >
           {busy ? '마감하는 중…' : '마감하기'}
         </Button>
       </div>
+      <PinSheet
+        open={askPin}
+        title="이번 주 보고서 마감하기"
+        message="마감은 보고서 담당만 할 수 있어요. 담당 비밀번호를 넣어 주세요."
+        confirmLabel="다음"
+        onClose={() => setAskPin(false)}
+        // 비밀번호가 맞으면 같은 창에서 바로 확인 단계로 (창 두 개가 엇갈려 움직이지 않게)
+        next={{ message, confirmLabel: submitted > 0 ? '마감하고 합치기' : '마감하기', onConfirm: () => void run() }}
+      />
       <Confirm
         open={ask}
         title="이번 주 보고서 마감하기"
@@ -48,15 +68,22 @@ export function CloseBar({ date, groups, missing, submitted }: { date: ISODate; 
   )
 }
 
-/** 마감 후: [합친 PDF 받기] [공유]. 합친 PDF 는 미리 준비해 둬요 */
+/**
+ * 마감 후: [합친 PDF 받기] [공유]. 합친 PDF 는 미리 준비해 둬요.
+ * 담당 비밀번호를 아직 안 넣었으면 [합친 PDF 받기]를 누를 때 물어보고, 맞으면 그때 합쳐요
+ */
 export function MergedBar({ date, merge, parts }: { date: ISODate; merge: MergeState | null; parts: MergePart[] }) {
+  const hasPin = useGroupReports((s) => s.hasPin)
+  const [askPin, setAskPin] = useState(false)
   const name = mergedFileName(date)
   const ready = merge?.status === 'ready' && merge.blob ? merge.blob : null
   const file = useMemo(() => (ready ? new File([ready], name, { type: 'application/pdf' }) : null), [ready, name])
   const shareable = file !== null && canShareFile(file)
   const empty = parts.length === 0
-  const working = !empty && (!merge || merge.status === 'working')
-  const failed = merge?.status === 'error'
+  const working = hasPin && !empty && (!merge || merge.status === 'working')
+  const failed = hasPin && merge?.status === 'error'
+  /** 담당 비밀번호를 물어봐야 받을 수 있어요 */
+  const locked = !hasPin && !empty
 
   const download = () => {
     if (!ready) return
@@ -72,6 +99,28 @@ export function MergedBar({ date, merge, parts }: { date: ISODate; merge: MergeS
       useStore.getState().toast('공유하지 못했어요. [합친 PDF 받기]로 받아서 보내 주세요.', 'error')
     }
   }
+
+  if (locked)
+    return (
+      <>
+        <div className={BAR}>
+          <Button icon="download" className="pointer-events-auto flex-1 md:min-w-64 md:flex-none md:shadow-[var(--shadow-card)]" onClick={() => setAskPin(true)}>
+            합친 PDF 받기
+          </Button>
+        </div>
+        <PinSheet
+          open={askPin}
+          title="합친 PDF 받기"
+          message="합친 PDF는 보고서 담당만 받을 수 있어요. 담당 비밀번호를 넣으면 목장 순서대로 한 PDF로 합쳐요."
+          confirmLabel="합치기"
+          onClose={() => setAskPin(false)}
+          onVerified={() => {
+            setAskPin(false)
+            void useGroupReports.getState().prepareMerge(date, parts)
+          }}
+        />
+      </>
+    )
 
   return (
     <div className={BAR}>

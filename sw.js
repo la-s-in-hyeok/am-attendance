@@ -1,5 +1,5 @@
 // 앱 화면(HTML·JS·CSS)만 캐시한다. 출석 데이터는 항상 서버에서 받아온다.
-const CACHE = 'am-attendance-v4'
+const CACHE = 'am-attendance-v5'
 self.addEventListener('install', (e) => {
   self.skipWaiting()
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html', './icon.svg', './manifest.webmanifest'])))
@@ -9,18 +9,44 @@ self.addEventListener('activate', (e) => {
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
   )
 })
+// 정상(200)인 같은 주소 응답만 저장해요. 오류·일부 응답(206)·불투명 응답은 저장하지 않아요
+const cacheable = (res) => res && res.status === 200 && res.type === 'basic'
+// 빌드 파일·글꼴 자리에 HTML 이 오면(없는 파일을 첫 화면으로 돌려주는 서버) 저장하지 않아요.
+// 저장해 버리면 그 주소는 계속 고장 난 채로 남아요
+const isHtml = (res) => /text\/html/i.test(res.headers.get('content-type') || '')
+const save = (e, res) => {
+  const copy = res.clone()
+  e.waitUntil(caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => undefined))
+}
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url)
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return
-  // 네트워크 우선, 실패하면 캐시
+  if (e.request.headers.has('range')) return
+  // 이름에 해시가 붙은 빌드 파일(assets/)과 글꼴(fonts/)은 내용이 절대 안 바뀌어요: 캐시 우선
+  // (한글 변환 엔진 wasm 약 28MB 도 한 번 받으면 다음부터는 인터넷 없이 써요)
+  if (url.pathname.includes('/assets/') || url.pathname.includes('/fonts/')) {
+    e.respondWith(
+      caches.match(e.request).then(
+        (hit) =>
+          hit ||
+          fetch(e.request).then((res) => {
+            if (cacheable(res) && !isHtml(res)) save(e, res)
+            return res
+          }),
+      ),
+    )
+    return
+  }
+  // 나머지는 네트워크 우선, 실패하면 캐시
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone()
-        caches.open(CACHE).then((c) => c.put(e.request, copy))
+        if (cacheable(res)) save(e, res)
         return res
       })
-      .catch(() => caches.match(e.request).then((r) => r || caches.match('./index.html'))),
+      .catch(() =>
+        caches.match(e.request).then((r) => r || (e.request.mode === 'navigate' ? caches.match('./index.html') : Response.error())),
+      ),
   )
 })
 

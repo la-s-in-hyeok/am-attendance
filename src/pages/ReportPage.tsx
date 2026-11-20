@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom'
 import { useWeek } from '../hooks'
 import { buildAbsenceReport, buildSheet } from '../lib/report'
 import { PageHeader, Segmented, WeekSwitcher } from '../components/ui'
+import { AttendSectionTabs } from '../components/AttendSectionTabs'
 import { AbsencePanel } from '../components/report/AbsencePanel'
 import { SheetPanel } from '../components/report/SheetPanel'
 import { PrintView, type PrintJob, type PrintLayout } from '../components/report/PrintView'
@@ -87,7 +88,7 @@ export function ReportPage() {
   return (
     <div>
       <div className="no-print">
-        <PageHeader title="보고서">
+        <PageHeader title="출석보고" nav={<AttendSectionTabs />}>
           <WeekSwitcher />
         </PageHeader>
 

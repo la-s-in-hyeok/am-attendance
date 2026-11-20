@@ -20,6 +20,16 @@
 --  앱을 꺼 둔 휴대폰 알림(am-notify)에는 공용 비밀번호를 보내지 않고, 완료할 때 서버가 만든
 --  한 번 쓰는 알림 열쇠만 보내요. 이 스크립트를 다시 Run 했으면 am-notify 함수도 새것으로 다시 올려 주세요.
 --
+--  청년회 캘린더(일정 + 회의록)도 이 스크립트에 들어 있어요. (events, event_notes 표)
+--  처음 Run 할 때 한 번만 2027년 청년회 일정 31개를 넣어 둬요. 나중에 일정을 다 지우고 다시 Run 해도
+--  다시 생기지 않아요. (app_settings 의 'calendar_seeded' 표시를 보고 판단해요)
+--  예전 스크립트로 만든 서버는 한 번 더 Run 해야 캘린더를 쓸 수 있어요.
+--
+--  목장보고서(매주 목장마다 PDF 하나)도 이 스크립트에 들어 있어요. (report_files, report_weeks, file_tickets 표)
+--  Run 하면 Storage 에 비공개 보관함 'am-reports'(파일 하나 최대 45MB, PDF 만)와 그 규칙도 만들어요.
+--  보관함은 비밀번호를 확인한 함수가 준 15분짜리 허락표가 있을 때만 파일을 올리고·받고·지울 수 있어요.
+--  예전 스크립트로 만든 서버는 한 번 더 Run 해야 목장보고서를 쓸 수 있어요.
+--
 --  보안 구조
 --    · 모든 표(테이블)는 RLS(행 수준 보안)를 켜 두고 허용 규칙을 하나도 만들지 않아요.
 --      → 앱 주소와 anon key 를 알아도 표를 직접 읽거나 고칠 수 없어요.
@@ -195,6 +205,33 @@ create table if not exists public.push_subs (
 );
 create index if not exists push_subs_updated_idx on public.push_subs (updated_at);
 
+-- 청년회 캘린더 일정 (하루 종일 일정만. 여러 날이면 start_date ~ end_date, 양 끝 포함)
+--  color:      일정 색 이름 (pink, peach, butter, mint, sky, lavender, lilac, aqua 중 하나)
+--  deleted_at: 지운 일정 (30일 안에는 되돌릴 수 있어요. 30일이 지나면 회의록과 함께 정리해요)
+create table if not exists public.events (
+  id          uuid primary key,
+  title       text not null,
+  start_date  date not null,
+  end_date    date not null,
+  color       text not null,
+  deleted_at  timestamptz,
+  updated_at  timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+create index if not exists events_start_idx on public.events (start_date) where deleted_at is null;
+create index if not exists events_deleted_idx on public.events (deleted_at) where deleted_at is not null;
+
+-- 일정마다 회의록 하나 (에디터 문서 JSON, 최대 약 300KB)
+--  plain_len: 글자 수 (목록에 📝 표시용. 앱이 세어서 보내요)
+--  version:   판 번호. 저장할 때마다 1씩 올라가요 (두 기기가 같은 회의록을 고칠 때 덮어쓰지 않도록)
+create table if not exists public.event_notes (
+  event_id    uuid primary key references public.events (id) on delete cascade,
+  doc         jsonb not null,
+  plain_len   integer not null default 0,
+  version     integer not null default 1,
+  updated_at  timestamptz not null default now()
+);
+
 -- 처음 비밀번호 0000 (이미 있으면 그대로 둬요)
 insert into public.app_settings (key, value)
 values ('passcode_hash', crypt('0000', gen_salt('bf')))
@@ -203,6 +240,81 @@ on conflict (key) do nothing;
 insert into public.app_settings (key, value)
 values ('attempt_salt', encode(gen_random_bytes(16), 'hex'))
 on conflict (key) do nothing;
+
+-- 2027년 청년회 일정 (처음 한 번만. 2026년 행사표를 요일에 맞춰 2027년 달력으로 옮겼어요)
+--  'calendar_seeded' 표시가 이미 있으면 아무것도 안 해요 (일정을 다 지운 뒤 다시 Run 해도 다시 생기지 않아요).
+--  각 행사의 설명은 그 일정 회의록의 첫 문단으로 넣어요. 글자 수(plain_len)는 0 으로 둬서
+--  📝 표시는 누가 실제로 회의록을 쓴 뒤에만 보여요.
+--  체험 모드(src/lib/calendarSeed.ts)와 같은 내용·같은 id 예요. 한쪽을 고치면 다른 쪽도 고쳐 주세요.
+do $$
+declare
+  r record;
+begin
+  -- 표시를 먼저 넣어 봐요. 이미 있으면(예전에 넣었음) 끝 (두 곳에서 동시에 Run 해도 한 번만 들어가요)
+  insert into public.app_settings (key, value)
+  values ('calendar_seeded', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+  on conflict (key) do nothing;
+  if not found then
+    return;
+  end if;
+
+  for r in
+    select s.id::uuid as id, s.d1::date as d1, s.d2::date as d2, s.title, s.color, s.memo
+    from (values
+      ('27000000-0000-4000-8000-000000000001', '2027-01-02', '2027-01-02', '목장은퇴·목자파송·신입생환영회', 'sky', '토요예배 2부 순서: 목장 은퇴 & 신규 목자 파송 & 신입생 환영회'),
+      ('27000000-0000-4000-8000-000000000002', '2027-01-14', '2027-01-14', '신입생 OT', 'peach', '신입생 OT'),
+      ('27000000-0000-4000-8000-000000000003', '2027-01-16', '2027-01-16', '바나바사역자 교육', 'mint', '토요예배 때'),
+      ('27000000-0000-4000-8000-000000000004', '2027-01-23', '2027-01-23', '전도교육세미나', 'butter', '토요예배 때'),
+      ('27000000-0000-4000-8000-000000000005', '2027-01-24', '2027-01-24', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000006', '2027-01-30', '2027-01-30', '설날 예배', 'pink', '학생회와 연합예배, 보드게임과 치킨 (2026년에는 설 연휴 전 토요일에 했어요)'),
+      ('27000000-0000-4000-8000-000000000007', '2027-02-25', '2027-02-27', '청년 수련회', 'aqua', '2027 청년수련회 (2월 25~27일)'),
+      ('27000000-0000-4000-8000-000000000008', '2027-02-28', '2027-02-28', '청년주일', 'sky', '청년주일'),
+      ('27000000-0000-4000-8000-000000000009', '2027-02-28', '2027-02-28', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000010', '2027-03-20', '2027-03-20', '볼링대회', 'peach', '토요예배 대체'),
+      ('27000000-0000-4000-8000-000000000011', '2027-03-28', '2027-03-28', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000012', '2027-04-20', '2027-04-20', '캠퍼스 전도', 'mint', '군산대·간호대'),
+      ('27000000-0000-4000-8000-000000000013', '2027-04-22', '2027-04-22', '캠퍼스 전도', 'mint', '군산대·간호대'),
+      ('27000000-0000-4000-8000-000000000014', '2027-04-25', '2027-04-25', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000015', '2027-05-01', '2027-05-01', '목자총무 위로회', 'lilac', '순천'),
+      ('27000000-0000-4000-8000-000000000016', '2027-05-08', '2027-05-08', '봄봄봄 야외예배', 'butter', '금강하굿둑 (칼국수, 레크리에이션 등)'),
+      ('27000000-0000-4000-8000-000000000017', '2027-05-15', '2027-05-15', '스승의 날 행사', 'pink', '토요예배 2부 순서 — 목사님께 과일 컵바구니, 전기그릴'),
+      ('27000000-0000-4000-8000-000000000018', '2027-05-23', '2027-05-23', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000019', '2027-05-29', '2027-05-29', 'M.E.E.T 행사', 'aqua', '원스타임오프'),
+      ('27000000-0000-4000-8000-000000000020', '2027-06-27', '2027-06-27', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000021', '2027-07-25', '2027-07-25', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000022', '2027-07-26', '2027-07-29', '가족수련회', 'peach', '2026년은 제41회 가족수련회'),
+      ('27000000-0000-4000-8000-000000000023', '2027-08-07', '2027-08-07', '그레이스 토크쇼', 'lilac', '토요예배 — 2청과 연합, 주교관 카페'),
+      ('27000000-0000-4000-8000-000000000024', '2027-08-22', '2027-08-22', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000025', '2027-09-26', '2027-09-26', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000026', '2027-10-16', '2027-10-16', '사랑의 연탄봉사 & 목자총무 파송식', 'mint', '사랑의 연탄봉사 & 목자총무 파송식'),
+      ('27000000-0000-4000-8000-000000000027', '2027-10-23', '2027-10-23', 'P.M 축제', 'butter', 'P.M 축제'),
+      ('27000000-0000-4000-8000-000000000028', '2027-10-24', '2027-10-24', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000029', '2027-11-21', '2027-11-21', '추수감사절', 'peach', '추수감사절 절기 행사 (셋째 주일)'),
+      ('27000000-0000-4000-8000-000000000030', '2027-11-28', '2027-11-28', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대'),
+      ('27000000-0000-4000-8000-000000000031', '2027-12-26', '2027-12-26', '청년회 오후 성가대', 'lavender', '매달 4주째는 청년회 오후 성가대')
+    ) as s (id, d1, d2, title, color, memo)
+  loop
+    insert into public.events (id, title, start_date, end_date, color)
+    values (r.id, r.title, r.d1, r.d2, r.color)
+    on conflict (id) do nothing;
+
+    insert into public.event_notes (event_id, doc, plain_len, version)
+    values (
+      r.id,
+      jsonb_build_object(
+        'type', 'doc',
+        'content', jsonb_build_array(jsonb_build_object(
+          'type', 'paragraph',
+          'content', jsonb_build_array(jsonb_build_object('type', 'text', 'text', r.memo))
+        ))
+      ),
+      0,
+      1
+    )
+    on conflict (event_id) do nothing;
+  end loop;
+end
+$$;
 
 -- ---------------------------------------------------------------------
 --  직접 접근 막기: RLS 켜고 허용 규칙은 만들지 않아요
@@ -217,11 +329,13 @@ alter table public.login_attempts      enable row level security;
 alter table public.login_trusted       enable row level security;
 alter table public.group_days          enable row level security;
 alter table public.push_subs           enable row level security;
+alter table public.events              enable row level security;
+alter table public.event_notes         enable row level security;
 
 revoke all on table
   public.groups, public.members, public.attendance, public.attendance_deleted,
   public.week_notes, public.app_settings, public.login_attempts, public.login_trusted,
-  public.group_days, public.push_subs
+  public.group_days, public.push_subs, public.events, public.event_notes
 from public, anon, authenticated;
 revoke all on sequence public.login_attempts_id_seq from public, anon, authenticated;
 
@@ -1280,6 +1394,892 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------
+--  청년회 캘린더 (일정 + 회의록)
+--  · 일정이 없거나 지운 일정이면 {"error": "not_found"}
+--  · 값이 이상하면(제목 1~60자, 끝 날짜 >= 시작 날짜, 최대 60일, 8가지 색) {"error": "invalid"}
+--  · 회의록이 너무 크면(약 300KB) {"error": "too_big"}
+-- ---------------------------------------------------------------------
+
+-- 일정 한 줄 → 앱이 쓰는 모양 (hasNote: 회의록에 글이 있는지)
+create or replace function public.am__event_json(e public.events)
+returns jsonb
+language sql
+stable
+set search_path = public, extensions
+as $$
+  select jsonb_build_object(
+    'id',        e.id,
+    'title',     e.title,
+    'startDate', to_char(e.start_date, 'YYYY-MM-DD'),
+    'endDate',   to_char(e.end_date, 'YYYY-MM-DD'),
+    'color',     e.color,
+    'hasNote',   exists (select 1 from public.event_notes n where n.event_id = e.id and n.plain_len > 0),
+    'updatedAt', to_char(e.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  );
+$$;
+
+revoke all on function public.am__event_json(public.events) from public, anon, authenticated;
+
+-- 지우지 않은 일정 전부 (한 해 50개 안팎)
+create or replace function public.am_get_events(p_code text)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+
+  return coalesce((
+    select jsonb_agg(public.am__event_json(e) order by e.start_date, e.end_date desc, e.created_at, e.id)
+    from public.events e
+    where e.deleted_at is null
+  ), '[]'::jsonb);
+end;
+$$;
+
+-- 일정 추가·수정 (id 가 같으면 덮어쓰기)
+--  p_event: {"id", "title", "startDate": "YYYY-MM-DD", "endDate", "color"}
+--  돌려주는 값: {"ok": true, "event": 저장된 일정}
+--  지운 일정(되돌리기 전)은 고치지 않고 {"error": "not_found"} 를 돌려줘요.
+create or replace function public.am_save_event(p_code text, p_event jsonb)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v       text;
+  v_id    uuid;
+  v_title text;
+  v_start date;
+  v_end   date;
+  v_color text;
+  r       public.events;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if jsonb_typeof(p_event) is distinct from 'object'
+     or coalesce(p_event ->> 'id', '') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     or coalesce(p_event ->> 'startDate', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+     or coalesce(p_event ->> 'endDate', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  -- 앞뒤 빈칸(줄바꿈 포함)은 빼고 봐요
+  v_title := regexp_replace(coalesce(p_event ->> 'title', ''), '^[[:space:]]+|[[:space:]]+$', '', 'g');
+  v_color := p_event ->> 'color';
+  v_id    := (p_event ->> 'id')::uuid;
+  begin
+    v_start := (p_event ->> 'startDate')::date;
+    v_end   := (p_event ->> 'endDate')::date;
+  exception when others then
+    -- 2027-02-30 같은 없는 날짜
+    return jsonb_build_object('error', 'invalid');
+  end;
+
+  if char_length(v_title) not between 1 and 60
+     or v_color is null
+     or v_color not in ('pink', 'peach', 'butter', 'mint', 'sky', 'lavender', 'lilac', 'aqua')
+     or v_start < '2000-01-01'::date
+     or v_end > '2100-12-31'::date
+     or v_end < v_start
+     or v_end - v_start > 59 then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  -- 지운 일정은 덮어쓰지 않아요 (where 에 걸리면 아무 줄도 돌려주지 않아요)
+  insert into public.events as e (id, title, start_date, end_date, color, updated_at, created_at)
+  values (v_id, v_title, v_start, v_end, v_color, now(), now())
+  on conflict (id) do update
+    set title      = excluded.title,
+        start_date = excluded.start_date,
+        end_date   = excluded.end_date,
+        color      = excluded.color,
+        updated_at = excluded.updated_at
+    where e.deleted_at is null
+  returning * into r;
+
+  if not found then
+    return jsonb_build_object('error', 'not_found');
+  end if;
+
+  return jsonb_build_object('ok', true, 'event', public.am__event_json(r));
+end;
+$$;
+
+-- 일정 지우기 (회의록도 같이 안 보여요). 이미 지웠어도 ok.
+--  30일 안에는 am_restore_event 로 되돌릴 수 있어요. 지운 지 30일이 지난 일정은 여기서 회의록과 함께 정리해요.
+create or replace function public.am_delete_event(p_code text, p_id uuid)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_id is null then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  update public.events e
+     set deleted_at = now(), updated_at = now()
+   where e.id = p_id and e.deleted_at is null;
+
+  -- 회의록은 on delete cascade 로 같이 지워져요
+  delete from public.events e where e.deleted_at < now() - interval '30 days';
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- 지운 일정 되돌리기 (회의록도 다시 보여요). 지우지 않은 일정이면 그대로 ok.
+--  아예 없거나 30일이 지나 정리된 일정이면 {"error": "not_found"}
+create or replace function public.am_restore_event(p_code text, p_id uuid)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_id is null then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  update public.events e
+     set deleted_at = null, updated_at = now()
+   where e.id = p_id and e.deleted_at is not null;
+
+  if not found and not exists (select 1 from public.events e where e.id = p_id) then
+    return jsonb_build_object('error', 'not_found');
+  end if;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- 회의록 읽기: {"doc", "version", "updatedAt"}. 아직 아무도 안 썼으면 {"doc": null, "version": 0, "updatedAt": null}
+create or replace function public.am_get_event_note(p_code text, p_id uuid)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+  n public.event_notes;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_id is null then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+  if not exists (select 1 from public.events e where e.id = p_id and e.deleted_at is null) then
+    return jsonb_build_object('error', 'not_found');
+  end if;
+
+  select * into n from public.event_notes x where x.event_id = p_id;
+  if not found then
+    return jsonb_build_object('doc', null, 'version', 0, 'updatedAt', null);
+  end if;
+
+  return jsonb_build_object(
+    'doc',       n.doc,
+    'version',   n.version,
+    'updatedAt', to_char(n.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  );
+end;
+$$;
+
+-- 회의록 저장
+--  p_base: 고치기 시작할 때 받은 판 번호 (아직 없던 회의록이면 0). -1 이면 판 번호를 보지 않고 덮어써요('내 것으로 저장').
+--  서버 판이 p_base 와 같으면 저장하고 판 번호 +1 → {"ok": true, "version", "updatedAt"}
+--  그사이 다른 기기가 먼저 저장했으면 저장하지 않고 최신 내용을 같이 돌려줘요
+--    → {"error": "conflict", "doc", "version", "updatedAt"}
+--  새 회의록에 두 기기가 동시에 처음 저장해도 하나는 ok, 하나는 conflict 가 돼요.
+create or replace function public.am_save_event_note(p_code text, p_id uuid, p_doc jsonb, p_plain_len integer, p_base integer)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+  n public.event_notes;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_id is null
+     or jsonb_typeof(p_doc) is distinct from 'object'
+     or (p_doc ->> 'type') is distinct from 'doc'
+     or p_plain_len is null or p_plain_len < 0
+     or p_base is null or p_base < -1 then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+  if octet_length(p_doc::text) > 300000 then
+    return jsonb_build_object('error', 'too_big');
+  end if;
+
+  -- 일정을 잡아 둬요 (저장하는 사이 다른 기기가 일정을 지우면, 지우기는 이 저장이 끝난 뒤에 돼요)
+  perform 1 from public.events e where e.id = p_id and e.deleted_at is null for share;
+  if not found then
+    return jsonb_build_object('error', 'not_found');
+  end if;
+
+  select * into n from public.event_notes x where x.event_id = p_id for update;
+  if not found then
+    if p_base in (-1, 0) then
+      insert into public.event_notes (event_id, doc, plain_len, version, updated_at)
+      values (p_id, p_doc, p_plain_len, 1, now())
+      on conflict (event_id) do nothing
+      returning * into n;
+      if found then
+        return jsonb_build_object(
+          'ok',        true,
+          'version',   n.version,
+          'updatedAt', to_char(n.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+        );
+      end if;
+    end if;
+    -- 다른 기기가 방금 먼저 넣었어요 → 그 줄을 잡고 아래에서 판 번호를 비교해요
+    select * into n from public.event_notes x where x.event_id = p_id for update;
+    if not found then
+      -- 앱은 판 번호가 있다고 알고 있는데 서버에는 회의록이 없어요 (정리된 경우 등)
+      return jsonb_build_object('error', 'conflict', 'doc', null, 'version', 0, 'updatedAt', null);
+    end if;
+  end if;
+
+  if p_base <> -1 and n.version <> p_base then
+    return jsonb_build_object(
+      'error',     'conflict',
+      'doc',       n.doc,
+      'version',   n.version,
+      'updatedAt', to_char(n.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+    );
+  end if;
+
+  update public.event_notes x
+     set doc = p_doc, plain_len = p_plain_len, version = x.version + 1, updated_at = now()
+   where x.event_id = p_id
+  returning * into n;
+
+  return jsonb_build_object(
+    'ok',        true,
+    'version',   n.version,
+    'updatedAt', to_char(n.updated_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  );
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+--  목장보고서 (매주 목장마다 PDF 하나)
+--  · 파일은 Supabase Storage 의 비공개 보관함(버킷) 'am-reports' 에 두고, 표에는 목록만 적어요.
+--  · 앱은 보관함에 직접 들어갈 수 없어요. 아래 am_report_ 함수가 비밀번호를 확인한 뒤
+--    그 파일 하나만, 15분 동안 쓸 수 있는 '허락표'(file_tickets)를 만들어 줘요.
+--    보관함 규칙(storage.objects 정책)은 이 허락표가 있을 때만 올리기·받기·지우기를 허락해요.
+--  · 파일 경로에는 무작위 uuid 가 들어 있어서 추측할 수 없어요.
+--  · 마감된 주는 올리기·지우기를 막아요 → {"error": "closed"}
+--  · 1년(371일) 지난 주의 보고서는 마감할 때 목록에서 빼고, 앱이 그 파일을 지우게 해요.
+--    (Supabase 는 SQL 로 storage.objects 를 바로 지우는 것을 막아서, 앱이 Storage API 로 지워요)
+--  · 마감·올리기·지우기는 같은 주일끼리 하나씩 처리해요(잠금). 마감한 뒤에 도착한 올리기는 'closed' 가 돼요.
+-- ---------------------------------------------------------------------
+
+-- 목장이 낸 보고서 (주일·목장마다 하나. 다시 올리면 새 파일로 바뀌어요)
+--  path: 보관함 안 경로 'reports/<주일>/<목장 id>/<무작위 uuid>.pdf'
+create table if not exists public.report_files (
+  date        date not null,
+  group_id    uuid not null references public.groups (id),
+  path        text not null,
+  file_name   text not null,
+  pages       integer not null default 0,
+  size_bytes  integer not null default 0,
+  uploaded_at timestamptz not null default now(),
+  primary key (date, group_id)
+);
+create index if not exists report_files_path_idx on public.report_files (path);
+
+-- 주일별 마감 (줄이 없거나 closed_at 이 비어 있으면 마감 전)
+create table if not exists public.report_weeks (
+  date       date primary key,
+  closed_at  timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+-- 보관함 허락표 (짧은 시간만 유효. upload = 올리기, read = 받기, delete = 지우기)
+create table if not exists public.file_tickets (
+  path       text not null,
+  kind       text not null check (kind in ('upload', 'read', 'delete')),
+  expires_at timestamptz not null,
+  primary key (path, kind)
+);
+create index if not exists file_tickets_expires_idx on public.file_tickets (expires_at);
+
+alter table public.report_files enable row level security;
+alter table public.report_weeks enable row level security;
+alter table public.file_tickets enable row level security;
+revoke all on table public.report_files, public.report_weeks, public.file_tickets from public, anon, authenticated;
+
+-- 보관함 규칙이 부르는 확인: 이 경로에 이 종류의 유효한 허락표가 있는지 (예/아니요만 알려 줘요)
+--  보관함(Storage)은 앱(anon) 권한으로 규칙을 확인하므로 anon 도 부를 수 있어야 해요.
+--  경로는 추측할 수 없는 무작위 이름이라, 예/아니요 말고는 아무것도 알 수 없어요.
+create or replace function public.am__ticket_ok(p_name text, p_kind text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, extensions
+as $$
+  select p_name is not null
+     and p_kind in ('upload', 'read', 'delete')
+     and exists (
+       select 1 from public.file_tickets t
+       where t.path = p_name and t.kind = p_kind and t.expires_at > now()
+     );
+$$;
+
+revoke all on function public.am__ticket_ok(text, text) from public, anon, authenticated;
+grant execute on function public.am__ticket_ok(text, text) to anon, authenticated;
+
+-- 허락표 주기 (이미 있으면 더 늦게 끝나는 쪽으로)
+create or replace function public.am__ticket_give(p_paths text[], p_kind text, p_minutes integer)
+returns void
+language sql
+volatile
+set search_path = public, extensions
+as $$
+  insert into public.file_tickets as t (path, kind, expires_at)
+  select distinct u.p, p_kind, now() + make_interval(mins => p_minutes)
+  from unnest(p_paths) as u(p)
+  where u.p is not null
+  on conflict (path, kind) do update set expires_at = greatest(t.expires_at, excluded.expires_at);
+$$;
+
+-- 끝난 지 1시간 지난 허락표 정리 (am_report_ 함수들이 가끔 불러요)
+create or replace function public.am__tickets_gc()
+returns void
+language sql
+volatile
+set search_path = public, extensions
+as $$
+  delete from public.file_tickets t where t.expires_at < now() - interval '1 hour';
+$$;
+
+-- 이 함수(주인 권한)가 storage.objects 를 빠짐없이 볼 수 있는지.
+--  Supabase 의 postgres 는 보통 RLS 를 건너뛸 수 있어요(bypassrls). 못 보면 '파일이 있는지' 확인은 건너뛰어요
+--  (RLS 에 가려 못 보는 것을 '파일이 없다'로 잘못 판단하지 않도록)
+create or replace function public.am__can_see_storage()
+returns boolean
+language sql
+stable
+set search_path = public, extensions
+as $$
+  select to_regclass('storage.objects') is not null
+     and exists (select 1 from pg_roles r where r.rolname = current_user and (r.rolsuper or r.rolbypassrls));
+$$;
+
+-- 보고서 한 줄 → 앱이 쓰는 모양
+create or replace function public.am__report_json(f public.report_files)
+returns jsonb
+language sql
+stable
+set search_path = public, extensions
+as $$
+  select jsonb_build_object(
+    'groupId',    f.group_id,
+    'path',       f.path,
+    'fileName',   f.file_name,
+    'pages',      f.pages,
+    'sizeBytes',  f.size_bytes,
+    'uploadedAt', to_char(f.uploaded_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  );
+$$;
+
+revoke all on function public.am__ticket_give(text[], text, integer)  from public, anon, authenticated;
+revoke all on function public.am__tickets_gc()                         from public, anon, authenticated;
+revoke all on function public.am__can_see_storage()                    from public, anon, authenticated;
+revoke all on function public.am__report_json(public.report_files)     from public, anon, authenticated;
+
+-- 보관함 'am-reports' 만들기 + 규칙 (Storage 가 없는 일반 PostgreSQL 에서는 건너뛰어요)
+--  비공개, 파일 하나 최대 45MB, PDF 만.
+--  규칙 이름은 am_reports_ 로 시작해요. 다시 Run 하면 지우고 새로 만들어요.
+--  · 올리기(insert): 올리기 허락표가 있는 경로만
+--  · 보기(select):  받기·올리기·지우기 허락표가 있는 경로만
+--    (올린 직후 결과를 돌려받을 때, 지울 때도 Storage 가 '보기' 규칙을 함께 확인해요)
+--  · 지우기(delete): 지우기 허락표가 있는 경로만
+--  · 덮어쓰기(update) 규칙은 만들지 않아요 → 이미 있는 파일은 바꿀 수 없어요
+do $$
+begin
+  if to_regclass('storage.buckets') is null or to_regclass('storage.objects') is null then
+    raise notice '목장보고서: storage 스키마가 없어서 보관함(am-reports) 만들기를 건너뛰어요 (Supabase 가 아닌 서버)';
+    return;
+  end if;
+
+  execute $sql$
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values ('am-reports', 'am-reports', false, 47185920, '{application/pdf}'::text[])
+    on conflict (id) do update
+      set public             = false,
+          file_size_limit    = excluded.file_size_limit,
+          allowed_mime_types = excluded.allowed_mime_types
+  $sql$;
+
+  execute 'drop policy if exists am_reports_insert on storage.objects';
+  execute 'drop policy if exists am_reports_select on storage.objects';
+  execute 'drop policy if exists am_reports_delete on storage.objects';
+
+  execute $sql$
+    create policy am_reports_insert on storage.objects
+      for insert to anon
+      with check (bucket_id = 'am-reports' and public.am__ticket_ok(name, 'upload'))
+  $sql$;
+  execute $sql$
+    create policy am_reports_select on storage.objects
+      for select to anon
+      using (
+        bucket_id = 'am-reports'
+        and (public.am__ticket_ok(name, 'read')
+             or public.am__ticket_ok(name, 'upload')
+             or public.am__ticket_ok(name, 'delete'))
+      )
+  $sql$;
+  execute $sql$
+    create policy am_reports_delete on storage.objects
+      for delete to anon
+      using (bucket_id = 'am-reports' and public.am__ticket_ok(name, 'delete'))
+  $sql$;
+end
+$$;
+
+-- 그 주일의 마감 여부와 낸 보고서 (목장 순서대로)
+--  돌려주는 값: {"date", "closedAt": 마감 시각 | null, "files": [{groupId, path, fileName, pages, sizeBytes, uploadedAt}]}
+create or replace function public.am_get_reports(p_code text, p_date date)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v        text;
+  v_closed timestamptz;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_date is null then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  select w.closed_at into v_closed from public.report_weeks w where w.date = p_date;
+
+  return jsonb_build_object(
+    'date',     to_char(p_date, 'YYYY-MM-DD'),
+    'closedAt', to_char(v_closed at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    'files',    coalesce((
+      select jsonb_agg(public.am__report_json(f) order by g.sort_order, g.name, f.group_id)
+      from public.report_files f
+      left join public.groups g on g.id = f.group_id
+      where f.date = p_date
+    ), '[]'::jsonb)
+  );
+end;
+$$;
+
+-- 올리기 시작: 새 경로와 15분짜리 올리기 허락표를 줘요 → {"ok": true, "path"}
+--  마감된 주면 {"error": "closed"}, 없거나 지운 목장이면 {"error": "no_group"}
+--  앱은 이 경로로 Storage 에 올린 뒤 am_report_commit 을 불러요.
+create or replace function public.am_report_begin(p_code text, p_date date, p_group_id uuid)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v      text;
+  v_path text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_date is null or p_group_id is null
+     or p_date < '2000-01-01'::date or p_date > '2100-12-31'::date then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
+
+  -- 마감된 주, 그리고 1년 넘게 지난 주(마감할 때 정리되는 주)는 더 못 올려요
+  if p_date < current_date - 371
+     or exists (select 1 from public.report_weeks w where w.date = p_date and w.closed_at is not null) then
+    return jsonb_build_object('error', 'closed');
+  end if;
+  if not exists (select 1 from public.groups g where g.id = p_group_id and not g.archived) then
+    return jsonb_build_object('error', 'no_group');
+  end if;
+
+  perform public.am__tickets_gc();
+  -- 끝나지 않은 올리기 허락표가 너무 많으면 잠시 쉬어요 (실수로 계속 누르는 경우 등)
+  if (select count(*) from public.file_tickets t where t.kind = 'upload' and t.expires_at > now()) >= 200 then
+    return jsonb_build_object('error', 'busy');
+  end if;
+
+  v_path := 'reports/' || to_char(p_date, 'YYYY-MM-DD') || '/' || p_group_id::text || '/' || gen_random_uuid()::text || '.pdf';
+  perform public.am__ticket_give(array[v_path], 'upload', 15);
+
+  return jsonb_build_object('ok', true, 'path', v_path);
+end;
+$$;
+
+-- 올리기 마치기: Storage 에 올린 파일을 그 목장의 보고서로 적어요
+--  돌려주는 값: {"ok": true, "file": 보고서, "oldPath": 예전 파일 경로 | null}
+--  예전 파일이 있었으면 그 경로에 지우기 허락표를 주고, 앱이 지워요.
+--  마감된 주면 {"error": "closed", "orphan": 방금 올린 경로} (앱이 지우도록 지우기 허락표를 줘요)
+--  그 밖의 오류: invalid(값이 이상함), expired(올리기 허락표가 없거나 오래됨), no_group, not_uploaded(파일이 없음)
+--  같은 요청을 다시 보내도(답이 끊겨 다시 보낸 경우) 이미 적혀 있으면 그대로 ok.
+create or replace function public.am_report_commit(
+  p_code text, p_date date, p_group_id uuid, p_path text, p_file_name text, p_pages integer, p_size integer
+)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v         text;
+  v_prefix  text;
+  v_name    text;
+  v_old     text;
+  v_found   boolean;
+  v_ticket  boolean;
+  v_checked boolean := false;
+  v_exists  boolean := false;
+  v_size    bigint;
+  r         public.report_files;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_date is null or p_group_id is null or p_path is null
+     or p_pages is null or p_pages < 0 or p_pages > 5000
+     or p_size is null or p_size < 0 then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+  v_prefix := 'reports/' || to_char(p_date, 'YYYY-MM-DD') || '/' || p_group_id::text || '/';
+  if left(p_path, length(v_prefix)) <> v_prefix
+     or substr(p_path, length(v_prefix) + 1) !~ '^[0-9a-f-]{36}\.pdf$' then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
+
+  select * into r from public.report_files f where f.date = p_date and f.group_id = p_group_id for update;
+  v_found := found;
+  if v_found and r.path = p_path then
+    -- 이미 적혀 있어요 (같은 요청을 다시 보냄)
+    delete from public.file_tickets t where t.path = p_path and t.kind = 'upload';
+    return jsonb_build_object('ok', true, 'file', public.am__report_json(r), 'oldPath', null);
+  end if;
+  v_old := case when v_found then r.path end;
+
+  -- 올리기 허락표: 끝난 지 30분까지는 봐줘요 (큰 파일을 느린 인터넷으로 올린 경우)
+  v_ticket := exists (
+    select 1 from public.file_tickets t
+    where t.path = p_path and t.kind = 'upload' and t.expires_at > now() - interval '30 minutes'
+  );
+
+  -- 마감됐거나 목장이 없어졌으면: 방금 올린 파일은 앱이 지우도록 지우기 허락표를 줘요
+  if exists (select 1 from public.report_weeks w where w.date = p_date and w.closed_at is not null) then
+    v := 'closed';
+  elsif not exists (select 1 from public.groups g where g.id = p_group_id and not g.archived) then
+    v := 'no_group';
+  elsif not v_ticket then
+    return jsonb_build_object('error', 'expired');
+  end if;
+  if v <> 'ok' then
+    if v_ticket then
+      delete from public.file_tickets t where t.path = p_path and t.kind = 'upload';
+      perform public.am__ticket_give(array[p_path], 'delete', 15);
+      return jsonb_build_object('error', v, 'orphan', p_path);
+    end if;
+    return jsonb_build_object('error', v);
+  end if;
+
+  -- 파일이 정말 올라갔는지 Storage 목록에서 확인해요 (볼 수 없는 서버면 건너뛰어요)
+  begin
+    if public.am__can_see_storage() then
+      select true,
+             case when o.metadata ->> 'size' ~ '^[0-9]{1,12}$' then (o.metadata ->> 'size')::bigint end
+        into v_exists, v_size
+        from storage.objects o
+       where o.bucket_id = 'am-reports' and o.name = p_path;
+      v_exists := coalesce(v_exists, false);
+      v_checked := true;
+    end if;
+  exception when others then
+    v_checked := false;
+    v_exists := false;
+    v_size := null;
+  end;
+  if v_checked and not v_exists then
+    return jsonb_build_object('error', 'not_uploaded');
+  end if;
+
+  -- 파일 이름: 보이지 않는 글자는 빼고, 앞뒤 빈칸 정리, 최대 200자
+  v_name := regexp_replace(coalesce(p_file_name, ''), '[[:cntrl:]]', '', 'g');
+  v_name := left(regexp_replace(v_name, '^[[:space:]]+|[[:space:]]+$', '', 'g'), 200);
+  if v_name = '' then
+    v_name := '보고서.pdf';
+  end if;
+
+  insert into public.report_files as f (date, group_id, path, file_name, pages, size_bytes, uploaded_at)
+  values (p_date, p_group_id, p_path, v_name, p_pages, least(coalesce(v_size, p_size), 2147483647)::integer, now())
+  on conflict (date, group_id) do update
+    set path        = excluded.path,
+        file_name   = excluded.file_name,
+        pages       = excluded.pages,
+        size_bytes  = excluded.size_bytes,
+        uploaded_at = excluded.uploaded_at
+  returning * into r;
+
+  delete from public.file_tickets t where t.path = p_path and t.kind = 'upload';
+  if v_old is not null and v_old <> p_path then
+    perform public.am__ticket_give(array[v_old], 'delete', 15);
+  else
+    v_old := null;
+  end if;
+
+  insert into public.report_weeks as w (date, updated_at) values (p_date, now())
+  on conflict (date) do update set updated_at = excluded.updated_at;
+
+  return jsonb_build_object('ok', true, 'file', public.am__report_json(r), 'oldPath', v_old);
+end;
+$$;
+
+-- 낸 보고서 지우기 (마감 전만) → {"ok": true, "path": 지울 파일 경로 | null}
+--  앱이 그 경로의 파일을 지우도록 지우기 허락표를 줘요. 이미 없으면 path 는 null.
+create or replace function public.am_report_delete(p_code text, p_date date, p_group_id uuid)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v      text;
+  v_path text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_date is null or p_group_id is null then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
+
+  if exists (select 1 from public.report_weeks w where w.date = p_date and w.closed_at is not null) then
+    return jsonb_build_object('error', 'closed');
+  end if;
+
+  delete from public.report_files f
+   where f.date = p_date and f.group_id = p_group_id
+  returning f.path into v_path;
+
+  perform public.am__tickets_gc();
+  if v_path is not null then
+    perform public.am__ticket_give(array[v_path], 'delete', 15);
+    update public.report_weeks w set updated_at = now() where w.date = p_date;
+  end if;
+
+  return jsonb_build_object('ok', true, 'path', v_path);
+end;
+$$;
+
+-- 파일 받기·보기 허락 (15분): 목록에 있는 경로만, 한 번에 최대 60개 → {"ok": true, "paths": 허락한 경로}
+create or replace function public.am_report_read(p_code text, p_paths text[])
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v       text;
+  v_paths text[];
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_paths is null or coalesce(cardinality(p_paths), 0) > 60 then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  perform public.am__tickets_gc();
+
+  select array_agg(distinct f.path) into v_paths
+  from public.report_files f
+  where f.path = any (p_paths);
+
+  if v_paths is not null then
+    perform public.am__ticket_give(v_paths, 'read', 15);
+  end if;
+
+  return jsonb_build_object('ok', true, 'paths', to_jsonb(coalesce(v_paths, '{}'::text[])));
+end;
+$$;
+
+-- 마감하기 (이미 마감됐으면 처음 마감 시각 그대로) → {"ok": true, "closedAt", "prune": 지울 파일 경로들}
+--  마감하는 김에 정리도 해요: 1년(371일) 지난 주의 보고서는 목록에서 빼고(한 번에 300개까지),
+--  어느 목록에도 없는 하루 넘은 파일(올리다 끊긴 것 등, 200개까지)도 찾아서, 앱이 지우도록 지우기 허락표를 줘요.
+create or replace function public.am_report_close(p_code text, p_date date)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v         text;
+  v_closed  timestamptz;
+  v_prune   text[];
+  v_orphans text[];
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_date is null or p_date < '2000-01-01'::date or p_date > '2100-12-31'::date then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
+
+  insert into public.report_weeks as w (date, closed_at, updated_at)
+  values (p_date, now(), now())
+  on conflict (date) do update
+    set closed_at  = coalesce(w.closed_at, excluded.closed_at),
+        updated_at = excluded.updated_at
+  returning w.closed_at into v_closed;
+
+  perform public.am__tickets_gc();
+
+  -- 1년 지난 보고서 정리 (오래된 것부터)
+  with old as (
+    select f.date, f.group_id
+    from public.report_files f
+    where f.date < current_date - 371
+    order by f.date
+    limit 300
+  ), del as (
+    delete from public.report_files f
+    using old
+    where f.date = old.date and f.group_id = old.group_id
+    returning f.path
+  )
+  select array_agg(del.path) into v_prune from del;
+
+  -- 마감 표시는 남겨요 (한 주에 한 줄이라 작아요). 지우면 그 주가 다시 '마감 전'이 돼서 올릴 수 있게 돼요
+  delete from public.report_weeks w
+   where w.date < current_date - 371
+     and w.closed_at is null
+     and not exists (select 1 from public.report_files f where f.date = w.date);
+
+  -- 목록에 없는 파일 찾기 (Storage 목록을 볼 수 없는 서버면 건너뛰어요)
+  begin
+    if public.am__can_see_storage() then
+      select array_agg(x.name) into v_orphans
+      from (
+        select o.name
+        from storage.objects o
+        where o.bucket_id = 'am-reports'
+          and o.created_at < now() - interval '1 day'
+          and not exists (select 1 from public.report_files f where f.path = o.name)
+        order by o.created_at
+        limit 200
+      ) x;
+    end if;
+  exception when others then
+    v_orphans := null;
+  end;
+
+  v_prune := coalesce(v_prune, '{}'::text[]) || coalesce(v_orphans, '{}'::text[]);
+  if cardinality(v_prune) > 0 then
+    perform public.am__ticket_give(v_prune, 'delete', 15);
+  end if;
+
+  return jsonb_build_object(
+    'ok',       true,
+    'closedAt', to_char(v_closed at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+    'prune',    to_jsonb(v_prune)
+  );
+end;
+$$;
+
+-- 마감 풀기 (실수로 마감했을 때) → {"ok": true}
+create or replace function public.am_report_reopen(p_code text, p_date date)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = public, extensions
+as $$
+declare
+  v text;
+begin
+  v := public.am__verify(p_code);
+  if v <> 'ok' then
+    return jsonb_build_object('error', v);
+  end if;
+  if p_date is null then
+    return jsonb_build_object('error', 'invalid');
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('am_report'), hashtext(p_date::text));
+
+  update public.report_weeks w
+     set closed_at = null, updated_at = now()
+   where w.date = p_date and w.closed_at is not null;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
 -- 앱(anon)에게는 위 am_ 함수만 열어 줘요
 revoke all on function public.am_login(text)                                    from public;
 revoke all on function public.am_change_passcode(text, text)                    from public;
@@ -1298,6 +2298,19 @@ revoke all on function public.am_get_group_days(text, date, date)               
 revoke all on function public.am_set_group_day(text, date, uuid, text)          from public;
 revoke all on function public.am_save_push_sub(text, text, jsonb)               from public;
 revoke all on function public.am_delete_push_sub(text, text)                    from public;
+revoke all on function public.am_get_events(text)                               from public;
+revoke all on function public.am_save_event(text, jsonb)                        from public;
+revoke all on function public.am_delete_event(text, uuid)                       from public;
+revoke all on function public.am_restore_event(text, uuid)                      from public;
+revoke all on function public.am_get_event_note(text, uuid)                     from public;
+revoke all on function public.am_save_event_note(text, uuid, jsonb, integer, integer) from public;
+revoke all on function public.am_get_reports(text, date)                        from public;
+revoke all on function public.am_report_begin(text, date, uuid)                 from public;
+revoke all on function public.am_report_commit(text, date, uuid, text, text, integer, integer) from public;
+revoke all on function public.am_report_delete(text, date, uuid)                from public;
+revoke all on function public.am_report_read(text, text[])                      from public;
+revoke all on function public.am_report_close(text, date)                       from public;
+revoke all on function public.am_report_reopen(text, date)                      from public;
 revoke all on function public.am_push_targets(date, uuid, text, text)           from public, anon, authenticated;
 revoke all on function public.am_push_forget(text)                              from public, anon, authenticated;
 
@@ -1318,6 +2331,19 @@ grant execute on function public.am_get_group_days(text, date, date)            
 grant execute on function public.am_set_group_day(text, date, uuid, text)          to anon, authenticated;
 grant execute on function public.am_save_push_sub(text, text, jsonb)               to anon, authenticated;
 grant execute on function public.am_delete_push_sub(text, text)                    to anon, authenticated, service_role;
+grant execute on function public.am_get_events(text)                               to anon, authenticated;
+grant execute on function public.am_save_event(text, jsonb)                        to anon, authenticated;
+grant execute on function public.am_delete_event(text, uuid)                       to anon, authenticated;
+grant execute on function public.am_restore_event(text, uuid)                      to anon, authenticated;
+grant execute on function public.am_get_event_note(text, uuid)                     to anon, authenticated;
+grant execute on function public.am_save_event_note(text, uuid, jsonb, integer, integer) to anon, authenticated;
+grant execute on function public.am_get_reports(text, date)                        to anon, authenticated;
+grant execute on function public.am_report_begin(text, date, uuid)                 to anon, authenticated;
+grant execute on function public.am_report_commit(text, date, uuid, text, text, integer, integer) to anon, authenticated;
+grant execute on function public.am_report_delete(text, date, uuid)                to anon, authenticated;
+grant execute on function public.am_report_read(text, text[])                      to anon, authenticated;
+grant execute on function public.am_report_close(text, date)                       to anon, authenticated;
+grant execute on function public.am_report_reopen(text, date)                      to anon, authenticated;
 grant execute on function public.am_push_targets(date, uuid, text, text)           to service_role;
 grant execute on function public.am_push_forget(text)                              to service_role;
 
@@ -1335,6 +2361,21 @@ notify pgrst, 'reload schema';
 --
 --  어떤 주일의 목장 '완료'를 모두 '완료 전'으로 되돌리기 (날짜를 바꿔서)
 --    delete from public.group_days where date = '2026-11-15';
+--
+--  지운 지 30일이 안 된 일정 되살리기 (제목을 바꿔서)
+--    update public.events set deleted_at = null where title = '볼링대회';
+--
+--  실수로 마감한 목장보고서 주를 다시 열기 (날짜를 바꿔서. 앱의 '마감 풀기'와 같아요)
+--    update public.report_weeks set closed_at = null where date = '2026-11-22';
+--
+--  어떤 주일에 낸 목장보고서 보기 (날짜를 바꿔서)
+--    select g.name as 목장, f.file_name as 파일, f.pages as 쪽, f.uploaded_at as 올린때 from public.report_files f join public.groups g on g.id = f.group_id where f.date = '2026-11-22' order by g.sort_order;
+--
+--  한 목장의 보고서를 '안 냄'으로 되돌리기 (목장 이름·날짜를 바꿔서. 파일은 Storage → am-reports 에서 따로 지워도 돼요)
+--    delete from public.report_files where date = '2026-11-22' and group_id = (select id from public.groups where name = '사랑' limit 1);
+--
+--  목장보고서 올리기·받기가 '허락'이 없다고 계속 실패할 때 → 허락표 비우기 (앱에서 다시 누르면 새로 만들어요)
+--    delete from public.file_tickets;
 --
 --  지금 들어 있는 인원 확인
 --    select (select count(*) from public.groups) as 목장, (select count(*) from public.members) as 사람, (select count(*) from public.attendance) as 출석기록;

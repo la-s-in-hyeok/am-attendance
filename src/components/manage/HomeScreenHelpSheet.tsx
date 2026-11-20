@@ -42,15 +42,15 @@ export function HomeScreenHelpSheet({ onClose }: { onClose: () => void }) {
       <div className="space-y-3">
         <Steps
           title="아이폰 (사파리)"
-          steps={['사파리로 출석부 주소를 열어요', '아래쪽 공유 버튼(네모에서 화살표가 나오는 모양)을 눌러요', '‘홈 화면에 추가’를 누르고, 오른쪽 위 ‘추가’를 눌러요']}
+          steps={['사파리로 앱 주소를 열어요', '아래쪽 공유 버튼(네모에서 화살표가 나오는 모양)을 눌러요', '‘홈 화면에 추가’를 누르고, 오른쪽 위 ‘추가’를 눌러요']}
         />
         <Steps
           title="안드로이드 (크롬)"
-          steps={['크롬으로 출석부 주소를 열어요', '오른쪽 위 ⋮ (점 세 개) 메뉴를 눌러요', '‘홈 화면에 추가’ 또는 ‘앱 설치’를 눌러요']}
+          steps={['크롬으로 앱 주소를 열어요', '오른쪽 위 ⋮ (점 세 개) 메뉴를 눌러요', '‘홈 화면에 추가’ 또는 ‘앱 설치’를 눌러요']}
         />
         <Steps
           title="안드로이드 (삼성 인터넷)"
-          steps={['삼성 인터넷으로 출석부 주소를 열어요', '아래쪽 ≡ (줄 세 개) 메뉴를 눌러요', '‘현재 페이지 추가’ → ‘홈 화면’을 눌러요']}
+          steps={['삼성 인터넷으로 앱 주소를 열어요', '아래쪽 ≡ (줄 세 개) 메뉴를 눌러요', '‘현재 페이지 추가’ → ‘홈 화면’을 눌러요']}
         />
       </div>
       <Callout className="mt-3" icon="kakao">
@@ -58,7 +58,7 @@ export function HomeScreenHelpSheet({ onClose }: { onClose: () => void }) {
         처음 알림을 켠 브라우저 하나만 계속 써 주세요 (두 브라우저에서 켜면 알림이 두 번 와요).
       </Callout>
       <Button variant="secondary" icon="copy" className="mt-4 w-full" onClick={copy}>
-        출석부 주소 복사하기
+        앱 주소 복사하기
       </Button>
     </Sheet>
   )

@@ -3,6 +3,7 @@ import { groupDayKey, useStore } from '../../store'
 import { useWeek } from '../../hooks'
 import { Button, Card, Empty, Icon, PageHeader, SyncBadge, WeekSwitcher } from '../ui'
 import { NotifyButton } from '../notify/NotifyButton'
+import { AttendSectionTabs } from '../AttendSectionTabs'
 import { SummaryCard } from './SummaryCard'
 import { MemberSearch } from './MemberSearch'
 import { GroupCard, staffLine } from './GroupCard'
@@ -51,9 +52,11 @@ export function AttendOverview() {
     <div className="anim-fade">
       <PageHeader
         title="출석"
+        nav={<AttendSectionTabs />}
         right={
-          // 휴대폰에서 한 줄에 안 들어가면 제목을 밀지 않고 두 줄로 (알림 버튼 위, 저장 상태 아래)
-          <div className="flex max-w-[calc(100vw-12rem)] flex-wrap-reverse items-center justify-end gap-x-2.5 gap-y-1 md:max-w-none">
+          // 휴대폰에서 한 줄에 안 들어가면 탭 제목을 밀지 않고 두 줄로 (알림 버튼 위, 저장 상태 아래).
+          // 너비 = 화면 − 탭 제목(20px 글자 약 175px, 320px 폭은 18px 글자 약 157px) − 띠 여백
+          <div className="flex max-w-[calc(100vw-14.5rem)] flex-wrap-reverse items-center justify-end gap-x-2.5 gap-y-1 max-[359px]:max-w-[7.5rem] md:max-w-none">
             <SyncBadge />
             <NotifyButton />
           </div>

@@ -84,7 +84,7 @@ export function NotifyButton() {
 
       <Sheet open={sheet === 'ios'} onClose={() => setSheet(null)} title="아이폰 알림 받기">
         <ol className="space-y-2.5">
-          {['사파리 아래쪽 공유 버튼을 눌러요', '‘홈 화면에 추가’를 눌러요', '홈 화면의 출석부 아이콘으로 열고 ‘알림 켜기’를 눌러요'].map((s, i) => (
+          {['사파리 아래쪽 공유 버튼을 눌러요', '‘홈 화면에 추가’를 눌러요', '홈 화면의 AM청년회 아이콘으로 열고 ‘알림 켜기’를 눌러요'].map((s, i) => (
             <li key={s} className="flex gap-3 text-[15px] leading-relaxed text-ink-2">
               <span className="tabular flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand text-[13px] font-bold text-white">
                 {i + 1}

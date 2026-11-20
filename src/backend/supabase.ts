@@ -1,16 +1,23 @@
 import { createClient, type RealtimeChannel, type SupabaseClient } from '@supabase/supabase-js'
-import type {
-  AttendanceRecord,
-  CompletionNotice,
-  Group,
-  GroupDay,
-  ISODate,
-  Member,
-  NamedNote,
-  Role,
-  Service,
-  Status,
-  WeekNote,
+import {
+  EVENT_COLORS,
+  type AttendanceRecord,
+  type CalEvent,
+  type CalEventInput,
+  type CompletionNotice,
+  type EventNote,
+  type SaveNoteResult,
+  type Group,
+  type GroupDay,
+  type ISODate,
+  type Member,
+  type NamedNote,
+  type ReportFile,
+  type ReportWeek,
+  type Role,
+  type Service,
+  type Status,
+  type WeekNote,
 } from '../lib/types'
 import type { Backend, ChangeScope, GroupDayAction, GroupDayResult, PushSubscriptionInfo, Roster } from './types'
 import { parseNotice, pushConfigured } from '../lib/push'
@@ -31,9 +38,23 @@ const EVENT = 'change'
 const NOTICE_EVENT = 'notify'
 /** Web Push 를 보내는 서버 함수 (supabase/functions/am-notify) */
 const PUSH_FUNCTION = 'am-notify'
-const SCOPES: ChangeScope[] = ['roster', 'attendance', 'notes', 'status']
+const SCOPES: ChangeScope[] = ['roster', 'attendance', 'notes', 'status', 'calendar', 'reports']
 /** 요청 하나를 기다리는 최대 시간 */
 const TIMEOUT_MS = 15_000
+/** 보고서 파일(Storage) 올리기·받기는 큰 파일이라 더 오래 기다려요 (가장 짧게 2분) */
+const STORAGE_TIMEOUT_MS = 120_000
+/** 큰 파일 올리기는 느린 인터넷(초당 64KB)으로도 끝나도록 크기만큼 더 기다려요 */
+const UPLOAD_SLOW_BYTES_PER_SEC = 64 * 1024
+/** 올리기 허락표가 15분이라 그보다 조금 짧게 */
+const UPLOAD_TIMEOUT_MAX_MS = 14 * 60_000
+/** 목장보고서 PDF 보관함 (supabase/schema.sql 이 만드는 비공개 버킷) */
+const REPORT_BUCKET = 'am-reports'
+/** 보고서 PDF 하나의 최대 크기 (보관함 제한과 같게 45MB) */
+const REPORT_MAX_BYTES = 45 * 1024 * 1024
+/** 서버가 한 번에 허락표를 주는 최대 파일 수 (am_report_read) */
+const REPORT_READ_CHUNK = 60
+/** 동시에 내려받는 파일 수 */
+const REPORT_PARALLEL = 4
 /**
  * 저장 요청이 결과를 모른 채 끊겼을 때(시간 초과 등), 같은 대상의 다음 저장을 보내기 전에 기다리는 시간.
  * 끊긴 요청이 서버에서 늦게 처리되더라도 그다음 저장보다 먼저 끝나도록 (새 값을 옛 값이 덮지 않도록)
@@ -56,6 +77,14 @@ const WRITES = new Set([
   'am_set_group_day',
   'am_save_push_sub',
   'am_delete_push_sub',
+  'am_save_event',
+  'am_delete_event',
+  'am_restore_event',
+  'am_save_event_note',
+  'am_report_commit',
+  'am_report_delete',
+  'am_report_close',
+  'am_report_reopen',
 ])
 
 export type BackendErrorKind = 'auth' | 'locked' | 'network' | 'setup' | 'invalid' | 'conflict' | 'server'
@@ -97,7 +126,27 @@ const MSG = {
   missingRef: '이미 지워졌거나 아직 저장되지 않은 목장·사람이 있어요. 새로고침한 뒤 다시 해 주세요.',
   invalid: '저장할 수 없는 값이 있어요. 새로고침한 뒤 다시 해 주세요.',
   groupDone: "완료된 목장이에요. 고치려면 '수정'을 눌러 주세요",
+  oldSchemaCalendar:
+    '서버 설정이 예전 버전이라 캘린더를 쓸 수 없어요. 회장이 Supabase SQL Editor 에서 새 supabase/schema.sql 을 한 번 더 Run 해 주세요.',
+  notFound: '이미 지워진 일정이에요. 새로고침한 뒤 다시 확인해 주세요.',
+  tooBig: '회의록이 너무 길어요. 내용을 조금 줄이거나 다른 일정에 나눠 적어 주세요.',
   busy: '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.',
+  oldSchemaReports:
+    '서버 설정이 예전 버전이라 목장보고서를 쓸 수 없어요. 회장이 Supabase SQL Editor 에서 새 supabase/schema.sql 을 한 번 더 Run 해 주세요.',
+  closed: '이미 마감됐어요. 더 올리거나 지울 수 없어요',
+  noGroup: '목장 정보가 바뀌었어요. 새로고침한 뒤 다시 해 주세요.',
+  uploadExpired: '올리는 데 시간이 너무 오래 걸렸어요. 다시 눌러 주세요',
+  notUploaded: '파일이 서버에 다 올라가지 않았어요. 다시 눌러 주세요',
+  uploadNetwork: '인터넷이 불안정해서 못 올렸어요. 다시 눌러 주세요',
+  uploadDenied:
+    '서버가 파일을 받아 주지 않았어요. 다시 눌러 주세요. 계속 안 되면 회장이 Supabase SQL Editor 에서 새 supabase/schema.sql 을 한 번 더 Run 해 주세요.',
+  fileTooBig: '파일이 너무 커요 (최대 45MB). 쪽수를 줄이거나 나눠서 올려 주세요.',
+  notPdf: 'PDF 파일만 올릴 수 있어요.',
+  reportGone: '이미 지워진 보고서예요. 새로고침한 뒤 다시 확인해 주세요.',
+  fileNetwork: '인터넷이 불안정해서 파일을 받지 못했어요. 다시 눌러 주세요',
+  fileMissing: '서버에서 이 보고서 파일을 찾지 못했어요. 그 목장에 다시 올려 달라고 해 주세요.',
+  readDenied:
+    '서버가 파일을 보여 주지 않았어요. 다시 눌러 주세요. 계속 안 되면 회장이 Supabase SQL Editor 에서 새 supabase/schema.sql 을 한 번 더 Run 해 주세요.',
   server: '서버에 잠시 문제가 있어요. 잠시 후 다시 시도해 주세요.',
 }
 
@@ -121,12 +170,45 @@ function normalizeUrl(raw: string): string {
   return u
 }
 
-/** 응답이 없을 때 무한정 기다리지 않도록 */
+function requestUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.href
+  return input.url
+}
+
+/**
+ * 응답이 없을 때 무한정 기다리지 않도록.
+ * 보고서 파일(Storage /object/…)은 크기가 커서 RPC(15초)보다 길게 기다려요 (storage-js 는 올리기에 signal 을 못 넘겨요)
+ */
 const fetchWithTimeout: typeof fetch = (input, init) => {
   if (init?.signal) return fetch(input, init)
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+  const ms = /\/storage\/v1\/object\//.test(requestUrl(input)) ? storageTimeout(init?.body) : TIMEOUT_MS
+  const timer = setTimeout(() => ctrl.abort(), ms)
   return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer))
+}
+
+/** 보내는 내용의 크기 (모르면 0) */
+function bodyBytes(body: BodyInit | null | undefined): number {
+  if (!body || typeof body === 'string') return typeof body === 'string' ? body.length : 0
+  if (body instanceof Blob) return body.size
+  if (body instanceof ArrayBuffer) return body.byteLength
+  if (ArrayBuffer.isView(body)) return body.byteLength
+  if (body instanceof FormData) {
+    let n = 0
+    for (const v of body.values()) n += typeof v === 'string' ? v.length : v.size
+    return n
+  }
+  return 0
+}
+
+/**
+ * Storage 요청을 기다리는 시간: 2분, 큰 파일을 올릴 때는 느린 인터넷으로도 다 갈 만큼 (최대 14분).
+ * 응답 머리말이 오면 타이머는 풀려서, 받는 쪽은 파일이 커도 끊지 않아요
+ */
+function storageTimeout(body: BodyInit | null | undefined): number {
+  const bytes = bodyBytes(body)
+  return Math.min(UPLOAD_TIMEOUT_MAX_MS, Math.max(STORAGE_TIMEOUT_MS, Math.ceil((bytes / UPLOAD_SLOW_BYTES_PER_SEC) * 1000)))
 }
 
 function sleep(ms: number) {
@@ -168,6 +250,22 @@ function envelopeToError(code: string): BackendError {
     case 'group_done':
       // 다른 기기에서 이미 완료된 목장: 서버가 아무것도 바꾸지 않았어요. 다시 보내도 같으니 다시 보내지 않아요
       return new BackendError('conflict', MSG.groupDone, code)
+    case 'not_found':
+      // 다른 기기에서 지운 일정 (또는 30일이 지나 정리된 일정): 다시 보내도 같아요
+      return new BackendError('conflict', MSG.notFound, code)
+    case 'too_big':
+      return new BackendError('invalid', MSG.tooBig, code)
+    case 'busy':
+      return new BackendError('server', MSG.busy, code)
+    case 'closed':
+      // 마감된 주: 서버가 아무것도 바꾸지 않았어요. 다시 보내도 같아요
+      return new BackendError('conflict', MSG.closed, code)
+    case 'no_group':
+      return new BackendError('conflict', MSG.noGroup, code)
+    case 'expired':
+      return new BackendError('network', MSG.uploadExpired, code)
+    case 'not_uploaded':
+      return new BackendError('network', MSG.notUploaded, code)
     default:
       return new BackendError('server', MSG.server, code)
   }
@@ -279,6 +377,107 @@ function toGroupDay(v: unknown): GroupDay | null {
     editCount: num(r.editCount),
     updatedAt: str(r.updatedAt),
   }
+}
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** 서버 일정 → 앱 일정. id·날짜가 이상한 줄은 버리고(null), 모르는 색은 하늘색으로 보여 줘요 */
+function toCalEvent(v: unknown): CalEvent | null {
+  const r = isObject(v) ? v : {}
+  if (typeof r.id !== 'string' || !r.id) return null
+  if (typeof r.startDate !== 'string' || !DAY_RE.test(r.startDate)) return null
+  const startDate = r.startDate
+  const endDate = typeof r.endDate === 'string' && DAY_RE.test(r.endDate) && r.endDate >= startDate ? r.endDate : startDate
+  return {
+    id: r.id,
+    title: str(r.title),
+    startDate,
+    endDate,
+    color: EVENT_COLORS.find((c) => c === r.color) ?? 'sky',
+    hasNote: r.hasNote === true,
+    updatedAt: str(r.updatedAt),
+  }
+}
+
+function toEventNote(v: unknown): EventNote {
+  const r = isObject(v) ? v : {}
+  return {
+    doc: isObject(r.doc) ? r.doc : null,
+    version: num(r.version),
+    updatedAt: typeof r.updatedAt === 'string' && r.updatedAt ? r.updatedAt : null,
+  }
+}
+
+function toReportFile(v: unknown): ReportFile | null {
+  const r = isObject(v) ? v : {}
+  if (typeof r.groupId !== 'string' || !r.groupId || typeof r.path !== 'string' || !r.path) return null
+  return {
+    groupId: r.groupId,
+    path: r.path,
+    fileName: str(r.fileName, '보고서.pdf'),
+    pages: num(r.pages),
+    sizeBytes: num(r.sizeBytes),
+    uploadedAt: str(r.uploadedAt),
+  }
+}
+
+function strings(v: unknown): string[] {
+  return asArray(v).filter((x): x is string => typeof x === 'string' && x.length > 0)
+}
+
+/** Storage 가 돌려준 오류의 모양 (storage-js StorageApiError / StorageUnknownError) */
+interface StorageErr {
+  message?: string
+  status?: number
+  statusCode?: string
+}
+
+/**
+ * Storage 오류 → 화면에 보여 줄 오류.
+ * what: upload = 올리기, read = 받기·보기
+ */
+function mapStorageError(err: unknown, what: 'upload' | 'read'): BackendError {
+  const e = (isObject(err) ? err : {}) as StorageErr
+  const http = typeof e.status === 'number' ? e.status : 0
+  // Storage 는 HTTP 400 에 진짜 이유(403·404·413 등)를 statusCode 로 따로 주는 일이 많아요
+  const inner = Number(e.statusCode) || 0
+  const status = inner >= 400 && inner < 600 && (http === 0 || http === 400) ? inner : http
+  const text = `${e.message ?? ''} ${e.statusCode ?? ''}`
+  const code = `storage_${status || 'net'}`
+  if (/bucket not found/i.test(text)) return new BackendError('setup', MSG.oldSchemaReports, 'no_bucket')
+  if (!status) return new BackendError('network', what === 'upload' ? MSG.uploadNetwork : MSG.fileNetwork, code)
+  if (status === 413 || /maximum allowed size|too large|payload/i.test(text)) return new BackendError('invalid', MSG.fileTooBig, code)
+  if (status === 415 || /mime type/i.test(text)) return new BackendError('invalid', MSG.notPdf, code)
+  // 허락표가 없거나 끝남 → 보관함 규칙(RLS)이 막았어요
+  if (status === 401 || status === 403 || /row-level security|unauthorized|not authorized/i.test(text)) {
+    return new BackendError('server', what === 'upload' ? MSG.uploadDenied : MSG.readDenied, code)
+  }
+  if (status === 404 || /not found/i.test(text)) {
+    return what === 'upload' ? new BackendError('setup', MSG.oldSchemaReports, code) : new BackendError('conflict', MSG.fileMissing, code)
+  }
+  if (status === 429) return new BackendError('server', MSG.busy, code)
+  if (isRetryable(status)) return new BackendError('network', what === 'upload' ? MSG.uploadNetwork : MSG.fileNetwork, code)
+  return new BackendError('server', MSG.server, code)
+}
+
+/** PDF 바이트 → Blob (바이트가 보통 ArrayBuffer 라면 복사하지 않아요) */
+function pdfBlob(bytes: Uint8Array): Blob {
+  const part = bytes.buffer instanceof ArrayBuffer ? (bytes as Uint8Array<ArrayBuffer>) : bytes.slice()
+  return new Blob([part], { type: 'application/pdf' })
+}
+
+/** 한 번에 limit 개씩 (나머지는 앞의 것이 끝나는 대로) */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
 }
 
 /** 서버에 함수가 없음 (예전 schema.sql) */
@@ -725,6 +924,262 @@ export class SupabaseBackend implements Backend {
     await this.call('am_delete_push_sub', { p_endpoint: endpoint })
   }
 
+  // --- 청년회 캘린더 ------------------------------------------------------------
+
+  /** 캘린더 함수 부르기. 서버에 함수가 없으면(예전 schema.sql) 회장에게 다시 Run 해 달라는 안내로 바꿔요 */
+  private async calendarCall(fn: string, args: Json, tries = 2, allow?: string): Promise<unknown> {
+    try {
+      return await this.call(fn, args, tries, allow)
+    } catch (e) {
+      if (isMissingFn(e)) throw new BackendError('setup', MSG.oldSchemaCalendar, (e as BackendError).code)
+      throw e
+    }
+  }
+
+  async fetchEvents(): Promise<CalEvent[]> {
+    const data = await this.calendarCall('am_get_events', {}, 3)
+    return asArray(data).map(toCalEvent).filter(notNull)
+  }
+
+  async saveEvent(event: CalEventInput): Promise<CalEvent> {
+    const p_event = {
+      id: event.id,
+      title: event.title.trim(),
+      startDate: event.startDate,
+      endDate: event.endDate,
+      color: event.color,
+    }
+    const data = await this.lane(`ev:${event.id}`, () => this.calendarCall('am_save_event', { p_event }))
+    this.notify('calendar')
+    const saved = toCalEvent(isObject(data) ? data.event : null)
+    // 저장은 됐는데 답의 모양이 이상하면 보낸 값으로 보여 줘요 (다음 새로고침 때 서버 값으로 맞춰져요)
+    return saved ?? { ...p_event, hasNote: false, updatedAt: new Date().toISOString() }
+  }
+
+  async deleteEvent(id: string): Promise<void> {
+    await this.lane(`ev:${id}`, () => this.calendarCall('am_delete_event', { p_id: id }))
+    this.notify('calendar')
+  }
+
+  async restoreEvent(id: string): Promise<void> {
+    await this.lane(`ev:${id}`, () => this.calendarCall('am_restore_event', { p_id: id }))
+    this.notify('calendar')
+  }
+
+  async fetchEventNote(eventId: string): Promise<EventNote> {
+    const data = await this.calendarCall('am_get_event_note', { p_id: eventId }, 3)
+    return toEventNote(data)
+  }
+
+  async saveEventNote(
+    eventId: string,
+    doc: unknown,
+    plainLen: number,
+    baseVersion: number,
+    force = false,
+  ): Promise<SaveNoteResult> {
+    const args = {
+      p_id: eventId,
+      p_doc: doc,
+      p_plain_len: Math.max(0, Math.round(plainLen) || 0),
+      // -1 = 판 번호를 보지 않고 덮어쓰기 ('내 것으로 저장')
+      p_base: force ? -1 : Math.max(0, Math.round(baseVersion) || 0),
+    }
+    const data = await this.lane(`evnote:${eventId}`, () =>
+      this.calendarCall('am_save_event_note', args, 2, 'conflict'),
+    )
+    // 그사이 다른 기기가 먼저 저장했어요: 서버는 아무것도 바꾸지 않았고, 최신 내용을 같이 보내 줘요
+    if (envelopeError(data) === 'conflict') return { ok: false, latest: toEventNote(data) }
+    this.notify('calendar')
+    const r = isObject(data) ? data : {}
+    return { ok: true, version: num(r.version), updatedAt: str(r.updatedAt) }
+  }
+
+  // --- 목장보고서 ---------------------------------------------------------------
+  //  파일은 Storage 의 비공개 보관함 'am-reports' 에 있어요. 보관함은 비밀번호를 모르니까,
+  //  먼저 am_report_ 함수(비밀번호 확인)가 그 파일 하나만 15분 동안 쓸 수 있는 허락표를 만들어 주고,
+  //  그다음 Storage API 로 올리기·받기·지우기를 해요.
+
+  /** 보고서 함수 부르기. 서버에 함수가 없으면(예전 schema.sql) 회장에게 다시 Run 해 달라는 안내로 바꿔요 */
+  private async reportCall(fn: string, args: Json, tries = 2, allow?: string): Promise<unknown> {
+    try {
+      return await this.call(fn, args, tries, allow)
+    } catch (e) {
+      if (isMissingFn(e)) throw new BackendError('setup', MSG.oldSchemaReports, (e as BackendError).code)
+      throw e
+    }
+  }
+
+  /** 보관함에서 파일 지우기 (서버가 지우기 허락표를 준 경로만). 실패해도 넘어가요: 다음 마감 때 서버가 다시 찾아 줘요 */
+  private async removeObjects(paths: string[]) {
+    const list = [...new Set(paths.filter((p) => typeof p === 'string' && p))]
+    if (list.length === 0 || !this.sb) return
+    for (let i = 0; i < list.length; i += 100) {
+      try {
+        const { error } = await this.sb.storage.from(REPORT_BUCKET).remove(list.slice(i, i + 100))
+        if (error) console.warn('[supabase] 보고서 파일 지우기 실패 (넘어가요)', error)
+      } catch (e) {
+        console.warn('[supabase] 보고서 파일 지우기 실패 (넘어가요)', e)
+      }
+    }
+  }
+
+  /** 받기 허락표 받기 (60개씩). 서버 목록에 있는 경로만 돌려줘요 */
+  private async allowRead(paths: string[]): Promise<Set<string>> {
+    const ok = new Set<string>()
+    const list = [...new Set(paths)]
+    for (let i = 0; i < list.length; i += REPORT_READ_CHUNK) {
+      const data = await this.reportCall('am_report_read', { p_paths: list.slice(i, i + REPORT_READ_CHUNK) }, 3)
+      for (const p of strings(isObject(data) ? data.paths : null)) ok.add(p)
+    }
+    return ok
+  }
+
+  async fetchReports(date: ISODate): Promise<ReportWeek> {
+    const data = await this.reportCall('am_get_reports', { p_date: date }, 3)
+    const r = isObject(data) ? data : {}
+    return {
+      date,
+      closedAt: typeof r.closedAt === 'string' && r.closedAt ? r.closedAt : null,
+      files: asArray(r.files).map(toReportFile).filter(notNull),
+    }
+  }
+
+  /**
+   * 1) am_report_begin: 마감 전인지 보고, 새 경로와 올리기 허락표를 받아요
+   * 2) Storage 에 PDF 올리기 (덮어쓰기 없음: 경로가 매번 새 uuid)
+   * 3) am_report_commit: 목록에 적기. 예전 파일이 있었으면 그 경로를 받아서 지워요 (실패해도 무시)
+   * 그사이 마감됐으면 방금 올린 파일을 지우고 'closed' 오류를 내요.
+   */
+  async uploadReport(date: ISODate, groupId: string, pdf: Uint8Array, fileName: string, pages: number): Promise<ReportFile> {
+    if (!(pdf instanceof Uint8Array) || pdf.byteLength === 0) throw new BackendError('invalid', MSG.invalid, 'invalid')
+    if (pdf.byteLength > REPORT_MAX_BYTES) throw new BackendError('invalid', MSG.fileTooBig, 'too_big')
+    const file = await this.lane(`report:${date}`, async () => {
+      const begin = await this.reportCall('am_report_begin', { p_date: date, p_group_id: groupId }, 2)
+      const path = isObject(begin) ? str(begin.path) : ''
+      if (!path) throw new BackendError('server', MSG.server, 'no_path')
+
+      const sb = this.client()
+      let upErr: unknown = null
+      try {
+        const { error } = await sb.storage
+          .from(REPORT_BUCKET)
+          .upload(path, pdfBlob(pdf), {
+            contentType: 'application/pdf',
+            upsert: false,
+            cacheControl: '3600',
+          })
+        upErr = error
+      } catch (e) {
+        upErr = e
+      }
+      if (upErr) {
+        console.error('[supabase] 보고서 올리기 실패', upErr)
+        throw mapStorageError(upErr, 'upload')
+      }
+
+      const args = {
+        p_date: date,
+        p_group_id: groupId,
+        p_path: path,
+        p_file_name: (fileName ?? '').trim().slice(0, 200),
+        p_pages: Math.max(0, Math.round(pages) || 0),
+        p_size: pdf.byteLength,
+      }
+      let data: unknown
+      try {
+        // 마감됐거나 목장이 없어졌으면 서버가 방금 올린 파일의 지우기 허락표를 같이 줘요
+        data = await this.reportCall('am_report_commit', args, 1, 'closed')
+      } catch (e) {
+        if (e instanceof BackendError && e.code === 'no_group') void this.removeObjects([path])
+        throw e
+      }
+      if (envelopeError(data) === 'closed') {
+        if (isObject(data) && typeof data.orphan === 'string') await this.removeObjects([data.orphan])
+        throw envelopeToError('closed')
+      }
+      const r = isObject(data) ? data : {}
+      if (typeof r.oldPath === 'string' && r.oldPath && r.oldPath !== path) await this.removeObjects([r.oldPath])
+      return (
+        toReportFile(r.file) ?? {
+          groupId,
+          path,
+          fileName: args.p_file_name || '보고서.pdf',
+          pages: args.p_pages,
+          sizeBytes: args.p_size,
+          uploadedAt: new Date().toISOString(),
+        }
+      )
+    })
+    this.notify('reports')
+    return file
+  }
+
+  async deleteReport(date: ISODate, groupId: string): Promise<void> {
+    const data = await this.lane(`report:${date}`, () =>
+      this.reportCall('am_report_delete', { p_date: date, p_group_id: groupId }),
+    )
+    this.notify('reports')
+    const path = isObject(data) ? data.path : null
+    if (typeof path === 'string' && path) await this.removeObjects([path])
+  }
+
+  async downloadReports(paths: string[]): Promise<{ path: string; bytes: Uint8Array | null }[]> {
+    if (paths.length === 0) return []
+    const allowed = await this.allowRead(paths)
+    const sb = this.client()
+    return mapLimit(paths, REPORT_PARALLEL, async (path) => {
+      if (!allowed.has(path)) return { path, bytes: null }
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const { data, error } = await sb.storage.from(REPORT_BUCKET).download(path)
+          if (!error && data) return { path, bytes: new Uint8Array(await data.arrayBuffer()) }
+          console.warn('[supabase] 보고서 받기 실패', path, error)
+          // 인터넷이 잠깐 끊긴 경우만 한 번 더
+          const status = isObject(error) && typeof error.status === 'number' ? error.status : 0
+          if (status && !isRetryable(status)) break
+        } catch (e) {
+          console.warn('[supabase] 보고서 받기 실패', path, e)
+        }
+        if (attempt < 2) await sleep(700)
+      }
+      return { path, bytes: null }
+    })
+  }
+
+  /** 10분 동안 열 수 있는 서명 주소. downloadName 을 주면 그 이름으로 받아져요 */
+  async reportFileUrl(path: string, downloadName?: string): Promise<string> {
+    const allowed = await this.allowRead([path])
+    if (!allowed.has(path)) throw new BackendError('conflict', MSG.reportGone, 'not_found')
+    const sb = this.client()
+    let res: { data: { signedUrl: string } | null; error: unknown }
+    try {
+      res = await sb.storage.from(REPORT_BUCKET).createSignedUrl(path, 600, downloadName ? { download: downloadName } : undefined)
+    } catch (e) {
+      res = { data: null, error: e }
+    }
+    if (res.error || !res.data?.signedUrl) {
+      console.error('[supabase] 보고서 주소 만들기 실패', res.error)
+      throw mapStorageError(res.error, 'read')
+    }
+    return res.data.signedUrl
+  }
+
+  async closeReports(date: ISODate): Promise<string> {
+    const data = await this.lane(`report:${date}`, () => this.reportCall('am_report_close', { p_date: date }))
+    this.notify('reports')
+    const r = isObject(data) ? data : {}
+    // 1년 지난 파일·목록에 없는 파일 정리 (기다리지 않아요. 실패하면 다음 마감 때 다시)
+    const prune = strings(r.prune)
+    if (prune.length) void this.removeObjects(prune)
+    return typeof r.closedAt === 'string' && r.closedAt ? r.closedAt : new Date().toISOString()
+  }
+
+  async reopenReports(date: ISODate): Promise<void> {
+    await this.lane(`report:${date}`, () => this.reportCall('am_report_reopen', { p_date: date }))
+    this.notify('reports')
+  }
+
   // --- 실시간 알림 --------------------------------------------------------------
 
   subscribe(onChange: (scope: ChangeScope) => void): () => void {
@@ -790,6 +1245,8 @@ export class SupabaseBackend implements Backend {
           this.emit('roster') // 명단 + 출석
           this.emit('notes')
           this.emit('status')
+          this.emit('calendar')
+          this.emit('reports')
         }
         this.subscribedOnce = true
         this.missed = false

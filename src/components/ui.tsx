@@ -40,6 +40,8 @@ const ICONS = {
   sheet: 'M4 4h16v16H4zM4 10h16M4 15h16M10 4v16',
   share: 'M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M16 6l-4-4-4 4M12 2v13',
   kakao: 'M12 4C7 4 3 7.1 3 11c0 2.5 1.7 4.7 4.2 5.9L6.5 20l3.7-2.4c.6.1 1.2.1 1.8.1 5 0 9-3.1 9-7s-4-6.7-9-6.7z',
+  /** 목장보고서: 폴더에 올리기 화살표 */
+  folder: 'M3 7a2 2 0 012-2h4l2 2.5h8a2 2 0 012 2V18a2 2 0 01-2 2H5a2 2 0 01-2-2V7zM12 17v-5M9.5 14l2.5-2.5 2.5 2.5',
 } as const
 
 export type IconName = keyof typeof ICONS
@@ -477,9 +479,10 @@ export function Ring({ value, size = 44, stroke = 5, children }: { value: number
 
 /**
  * ‹ 2026년 11월 15일 (주일) › — 지난 주일/다음 주일로 이동.
- * 파란 띠(PageHeader) 안에 두면 띠에 맞는 모양(진한 파랑 알약)으로 그린다
+ * 파란 띠(PageHeader) 안에 두면 띠에 맞는 모양(진한 파랑 알약)으로 그린다.
+ * noun: '지난 ○○ / 다음 주 ○○ / 이번 주 ○○' 의 낱말 (기본 '출석부', 목장보고서 탭은 '보고서')
  */
-export function WeekSwitcher({ className = '' }: { className?: string }) {
+export function WeekSwitcher({ className = '', noun = '출석부' }: { className?: string; noun?: string }) {
   const date = useStore((s) => s.date)
   const setDate = useStore((s) => s.setDate)
   const onBand = useOnBand()
@@ -488,7 +491,7 @@ export function WeekSwitcher({ className = '' }: { className?: string }) {
   // 다음 주일까지만 미리 열 수 있다
   const canNext = date < addDays(thisSunday, 7)
   const full = labelFull(date)
-  const state = isThisWeek ? '이번 주' : date < thisSunday ? '지난 출석부' : '다음 주 출석부'
+  const state = isThisWeek ? `이번 주 ${noun}` : date < thisSunday ? `지난 ${noun}` : `다음 주 ${noun}`
   const arrow = onBand ? 'text-white hover:bg-white/10 active:bg-white/15 disabled:opacity-40' : 'disabled:opacity-30'
   return (
     <div className={`flex items-center gap-1 ${onBand ? 'min-h-12 rounded-full bg-brand-deep p-0.5 text-white' : ''} ${className}`}>
@@ -520,7 +523,7 @@ export function WeekSwitcher({ className = '' }: { className?: string }) {
           )
         ) : (
           <span className={`text-[13px] leading-snug font-medium ${isThisWeek ? 'text-brand-ink' : 'text-ink-3'}`}>
-            {isThisWeek ? '이번 주 출석부' : state}
+            {state}
           </span>
         )}
         <input
@@ -573,7 +576,9 @@ export function SyncBadge() {
   if (sync === 'saving')
     return (
       <span className={`inline-flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap ${quiet}`}>
-        <span className={`h-1.5 w-1.5 animate-pulse rounded-full ${onBand ? 'bg-white' : 'bg-ink-3'}`} /> 저장 중
+        <span className={`h-1.5 w-1.5 animate-pulse rounded-full ${onBand ? 'bg-white' : 'bg-ink-3'}`} />
+        {/* 아주 좁은 휴대폰(320px)의 띠 안에서는 점만 (출석부 안쪽 탭 제목과 겹치지 않게) */}
+        <span className={onBand ? 'max-[359px]:sr-only' : ''}>저장 중</span>
       </span>
     )
   if (sync === 'error')
@@ -700,23 +705,43 @@ export function useOnBand(): boolean {
 
 /**
  * 페이지 위쪽 파란 띠: 로고 · 제목 · 오른쪽 버튼, 그 아래에 주일 고르기·작은 탭 같은 것(children).
- * 휴대폰에서는 화면 양옆과 맨 위까지 꽉 채우고, PC 에서는 둥근 카드로 보인다
+ * 휴대폰에서는 화면 양옆과 맨 위까지 꽉 채우고, PC 에서는 둥근 카드로 보인다.
+ * nav 를 주면(예: 출석부의 출석·출석보고·통계) 로고와 제목 대신 그것을 그린다. 제목은 화면 읽기 프로그램용으로만 남긴다
  */
-export function PageHeader({ title, sub, right, children }: { title: ReactNode; sub?: ReactNode; right?: ReactNode; children?: ReactNode }) {
+export function PageHeader({
+  title,
+  sub,
+  right,
+  nav,
+  children,
+}: {
+  title: ReactNode
+  sub?: ReactNode
+  right?: ReactNode
+  nav?: ReactNode
+  children?: ReactNode
+}) {
   return (
     <OnBandContext.Provider value={true}>
       <header className="no-print -mt-3 mr-[calc(-1*max(1rem,env(safe-area-inset-right)))] mb-3 ml-[calc(-1*max(1rem,env(safe-area-inset-left)))] rounded-b-3xl bg-brand pt-[max(env(safe-area-inset-top),0.75rem)] pr-[max(1rem,env(safe-area-inset-right))] pb-4 pl-[max(1rem,env(safe-area-inset-left))] text-white md:mx-0 md:mt-0 md:mb-5 md:rounded-3xl md:px-5 md:pt-4">
         <div className="flex min-h-11 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            {/* 휴대폰: 로고 (PC 는 왼쪽 메뉴에 있음). 로고 글씨가 어두워서 흰 칩 위에 */}
-            <span className="inline-flex h-9 shrink-0 items-center rounded-[10px] bg-white px-2 max-[359px]:hidden md:hidden">
-              <img src="./logo-full.png" alt="AM청년회" width={73} height={26} className="h-[26px] w-auto" />
-            </span>
-            <div className="min-w-0">
-              <h1 className="line-clamp-2 text-[22px] leading-tight font-bold tracking-tight [overflow-wrap:anywhere] md:text-[26px]">{title}</h1>
-              {sub && <div className="mt-0.5 text-[13px] text-white">{sub}</div>}
+          {nav ? (
+            <div className="flex min-w-0 flex-1 items-center">
+              <h1 className="sr-only">{title}</h1>
+              {nav}
             </div>
-          </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2.5">
+              {/* 휴대폰: 로고 (PC 는 왼쪽 메뉴에 있음). 로고 글씨가 어두워서 흰 칩 위에 */}
+              <span className="inline-flex h-9 shrink-0 items-center rounded-[10px] bg-white px-2 max-[359px]:hidden md:hidden">
+                <img src="./logo-full.png" alt="AM청년회" width={73} height={26} className="h-[26px] w-auto" />
+              </span>
+              <div className="min-w-0">
+                <h1 className="line-clamp-2 text-[22px] leading-tight font-bold tracking-tight [overflow-wrap:anywhere] md:text-[26px]">{title}</h1>
+                {sub && <div className="mt-0.5 text-[13px] text-white">{sub}</div>}
+              </div>
+            </div>
+          )}
           {right && <div className="shrink-0">{right}</div>}
         </div>
         {children && <div className="mt-3">{children}</div>}

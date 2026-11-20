@@ -1,4 +1,19 @@
-import type { AttendanceRecord, CompletionNotice, Group, GroupDay, ISODate, Member, NoticeKind, WeekNote } from '../lib/types'
+import type {
+  AttendanceRecord,
+  CalEvent,
+  CalEventInput,
+  CompletionNotice,
+  EventNote,
+  Group,
+  GroupDay,
+  ISODate,
+  Member,
+  NoticeKind,
+  ReportFile,
+  ReportWeek,
+  SaveNoteResult,
+  WeekNote,
+} from '../lib/types'
 
 export interface Roster {
   groups: Group[]
@@ -6,7 +21,7 @@ export interface Roster {
 }
 
 /** 어떤 데이터가 바뀌었는지 (다른 기기·다른 탭에서 바뀐 것을 알리는 용도) */
-export type ChangeScope = 'roster' | 'attendance' | 'notes' | 'status'
+export type ChangeScope = 'roster' | 'attendance' | 'notes' | 'status' | 'calendar' | 'reports'
 
 /** complete = 완료 (수정 중이었으면 수정 완료), edit = 완료한 목장을 다시 고치기 시작 */
 export type GroupDayAction = 'complete' | 'edit'
@@ -88,4 +103,42 @@ export interface Backend {
   /** Web Push 구독 저장 / 지우기 (체험 모드에서는 아무 일도 안 한다) */
   savePushSubscription(sub: PushSubscriptionInfo): Promise<void>
   deletePushSubscription(endpoint: string): Promise<void>
+
+  /* ── 청년회 캘린더 ── */
+
+  /** 지우지 않은 일정 전부 (한 해 50개 안팎) */
+  fetchEvents(): Promise<CalEvent[]>
+  /** 일정 추가·수정 (id 가 같으면 덮어쓰기). 저장된 일정을 돌려줘요 */
+  saveEvent(event: CalEventInput): Promise<CalEvent>
+  /** 일정 지우기 (회의록도 같이 안 보이게). 30일 안에는 restoreEvent 로 되돌릴 수 있어요 */
+  deleteEvent(id: string): Promise<void>
+  restoreEvent(id: string): Promise<void>
+  /** 회의록 읽기 */
+  fetchEventNote(eventId: string): Promise<EventNote>
+  /**
+   * 회의록 저장. baseVersion = 고치기 시작할 때 받은 판 번호.
+   * 서버 판이 그사이 바뀌었으면 저장하지 않고 { ok: false, latest } 를 돌려줘요.
+   * force 면 판 번호를 보지 않고 덮어써요 ('내 것으로 저장')
+   */
+  saveEventNote(eventId: string, doc: unknown, plainLen: number, baseVersion: number, force?: boolean): Promise<SaveNoteResult>
+
+  /* ── 목장보고서 ── */
+
+  /** 그 주일의 마감 여부와 낸 보고서 목록 */
+  fetchReports(date: ISODate): Promise<ReportWeek>
+  /**
+   * 보고서(이미 PDF 로 바꾼 것) 올리기. 그 목장이 이미 낸 게 있으면 새것으로 바꾸고 예전 파일은 지워요(지우기 실패는 무시).
+   * 마감된 주면 BackendError('conflict', …, 'closed')
+   */
+  uploadReport(date: ISODate, groupId: string, pdf: Uint8Array, fileName: string, pages: number): Promise<ReportFile>
+  /** 낸 보고서 지우기 (마감 전만. 마감됐으면 'closed') */
+  deleteReport(date: ISODate, groupId: string): Promise<void>
+  /** PDF 내려받기 (합치기용). 못 받은 것은 bytes: null */
+  downloadReports(paths: string[]): Promise<{ path: string; bytes: Uint8Array | null }[]>
+  /** 'PDF 보기'용 주소 (서버: 10분짜리 서명 주소, 체험 모드: blob 주소). downloadName 을 주면 그 이름으로 받기 */
+  reportFileUrl(path: string, downloadName?: string): Promise<string>
+  /** 마감하기 (이미 마감됐으면 그대로). 마감 시각을 돌려줘요 */
+  closeReports(date: ISODate): Promise<string>
+  /** 마감 풀기 (실수로 마감했을 때) */
+  reopenReports(date: ISODate): Promise<void>
 }

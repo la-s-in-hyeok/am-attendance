@@ -5,6 +5,7 @@ import { currentSunday, todayKST } from '../lib/dates'
 import { useStore } from '../store'
 import { useRecordList } from '../hooks'
 import { Card, Empty, PageHeader, Segmented } from '../components/ui'
+import { AttendSectionTabs } from '../components/AttendSectionTabs'
 import { YearSwitcher } from '../components/stats/parts'
 import { OverviewPanel } from '../components/stats/OverviewPanel'
 import { GroupHeatmap } from '../components/stats/GroupHeatmap'
@@ -116,11 +117,12 @@ export function StatsPage() {
     </div>
   )
 
+  const yearSwitch = <YearSwitcher year={year} years={years} loading={loading} onChange={(y) => void chooseYear(y)} />
+
+  // 휴대폰은 탭 제목(출석·출석보고·통계)과 연도 고르기가 한 줄에 안 들어가서, 연도는 띠 아래 줄로 내린다
   const header = (hasTabs: boolean) => (
-    <PageHeader
-      title="통계"
-      right={<YearSwitcher year={year} years={years} loading={loading} onChange={(y) => void chooseYear(y)} />}
-    >
+    <PageHeader title="통계" nav={<AttendSectionTabs />} right={<div className="max-md:hidden">{yearSwitch}</div>}>
+      <div className={`flex min-h-12 items-center justify-center rounded-full bg-brand-deep md:hidden ${hasTabs ? 'mb-2.5' : ''}`}>{yearSwitch}</div>
       {hasTabs ? tabs : undefined}
     </PageHeader>
   )

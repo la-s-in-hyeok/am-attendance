@@ -117,7 +117,7 @@ export function LoginPage() {
             alt="AM청년회"
             className="mb-6 h-16 w-auto supports-[height:1dvh]:mb-[clamp(12px,3dvh,24px)] supports-[height:1dvh]:h-[clamp(44px,8dvh,64px)]"
           />
-          <h1 className="text-2xl font-extrabold tracking-tight">출석부</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight">AM청년회</h1>
           <p className="mt-1.5 text-sm text-ink-3">목자·총무 비밀번호를 입력해 주세요</p>
 
           <div

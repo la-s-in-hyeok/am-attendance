@@ -9,7 +9,15 @@ import { mergeWeekNote } from './lib/notes'
 import { removalDate, rosterChangeFrom } from './lib/roster'
 import { currentPushEndpoint, disableNotifications } from './lib/push'
 
-export type Tab = 'attend' | 'report' | 'stats' | 'manage'
+/** 화면(탭). 출석부 안에 attend(출석)·report(출석보고)·stats(통계)가 있고, 그 밖에 캘린더·목장보고서·관리 */
+export type Tab = 'attend' | 'report' | 'stats' | 'calendar' | 'groupReport' | 'manage'
+/** 출석부 안쪽 탭 */
+export type AttendTab = 'attend' | 'report' | 'stats'
+
+/** 출석부 안쪽 탭(출석·출석보고·통계)인지 */
+export function isAttendTab(t: Tab): t is AttendTab {
+  return t === 'attend' || t === 'report' || t === 'stats'
+}
 export type SyncState = 'idle' | 'saving' | 'error'
 
 const PASS_KEY = 'am-attendance:passcode'
@@ -28,6 +36,9 @@ function dayMap(days: GroupDay[]): Record<string, GroupDay> {
   for (const d of days) out[groupDayKey(d.date, d.groupId)] = d
   return out
 }
+
+/** 이 저장소가 불러오는 데이터 (캘린더·목장보고서는 각자 저장소가 따로 불러와요) */
+const MAIN_SCOPES: readonly ChangeScope[] = ['roster', 'attendance', 'notes', 'status']
 
 /** 한글 안내가 담긴 오류면 그 문구를, 아니면 기본 문구를 */
 function koreanMessage(e: unknown, fallback: string): string {
@@ -93,8 +104,12 @@ interface State {
   /** 앱을 연 시점의 '이번 주일' (주일이 바뀌면 자동으로 넘어가기 위해) */
   autoDate: ISODate
   tab: Tab
+  /** 출석부 안쪽 탭 중 마지막으로 본 것 (아래 '출석부' 탭을 누르면 여기로 돌아와요) */
+  attendTab: AttendTab
   /** 열어 둔 목장 (출석 탭) */
   groupId: string | null
+  /** 지금 켜져 있는 탭을 한 번 더 누른 횟수 (캘린더는 이걸 보고 회의록을 닫고 달력으로 돌아가요) */
+  tabRetap: number
 
   sync: SyncState
   pending: number
@@ -115,6 +130,11 @@ interface State {
   /** 주일로 맞추고, 다음 주일보다 먼 날짜는 막는다 */
   setDate(d: ISODate): void
   setTab(t: Tab): void
+  /**
+   * 탭을 누를 때 (아래 탭·PC 왼쪽 메뉴·출석부 안쪽 탭이 같이 써요).
+   * 목장 화면이 열려 있으면 '뒤로 가기' 기록까지 정리하고 닫고, 다른 탭은 맨 위부터 보여 준다
+   */
+  goTab(t: Tab): void
   openGroup(id: string | null): void
   checkSundayRollover(): void
   toast(text: string, tone?: Toast['tone'], action?: ToastAction): void
@@ -169,7 +189,7 @@ export const useStore = create<State>((set, get) => {
    * 화면에 먼저 반영한 변경의 '번호'. 서버에서 새로 받아온 내용이 도착했을 때,
    * 받기 시작한 뒤에 이 기기에서 바뀐 것이 있으면 덮어쓰지 않고 한 번 더 받는다.
    */
-  const seq: Record<ChangeScope, number> = { roster: 0, attendance: 0, notes: 0, status: 0 }
+  const seq: Record<ChangeScope, number> = { roster: 0, attendance: 0, notes: 0, status: 0, calendar: 0, reports: 0 }
   const bump = (scope: ChangeScope) => {
     seq[scope]++
   }
@@ -340,6 +360,8 @@ export const useStore = create<State>((set, get) => {
   let lastBroadcastRefresh = 0
   const broadcastScopes = new Set<ChangeScope>()
   function onRemoteChange(scope: ChangeScope) {
+    // 캘린더·목장보고서는 각자 자기 저장소가 따로 받아요
+    if (!MAIN_SCOPES.includes(scope)) return
     broadcastScopes.add(scope)
     if (broadcastTimer) return
     const wait = Math.max(400, 2500 - (Date.now() - lastBroadcastRefresh))
@@ -376,6 +398,8 @@ export const useStore = create<State>((set, get) => {
     date: currentSunday(),
     autoDate: currentSunday(),
     tab: 'attend',
+    attendTab: 'attend',
+    tabRetap: 0,
     groupId: null,
     sync: 'idle',
     pending: 0,
@@ -428,7 +452,7 @@ export const useStore = create<State>((set, get) => {
       unsubscribe?.()
       unsubscribe = null
       clearTimers()
-      set({ authed: false, passcode: null, groups: [], members: [], records: {}, notes: {}, groupDays: {}, groupId: null, tab: 'attend' })
+      set({ authed: false, passcode: null, groups: [], members: [], records: {}, notes: {}, groupDays: {}, groupId: null, tab: 'attend', attendTab: 'attend' })
     },
 
     async changePasscode(current, next) {
@@ -466,6 +490,8 @@ export const useStore = create<State>((set, get) => {
 
     async refresh(scope) {
       if (!get().authed) return
+      // 캘린더·목장보고서는 여기서 불러오지 않아요 (각자 저장소가 새로고침해요)
+      if (scope && !MAIN_SCOPES.includes(scope)) return
       const { backend, loadedFrom } = get()
       // 내가 저장 중일 때 서버 값으로 덮어쓰면 방금 누른 것이 깜빡이므로 잠시 미룬다
       if (get().pending > 0) {
@@ -543,7 +569,23 @@ export const useStore = create<State>((set, get) => {
       if (next < get().loadedFrom) void get().ensureLoadedFrom(`${next.slice(0, 4)}-01-01`)
     },
     setTab(t) {
-      set({ tab: t, groupId: t === 'attend' ? get().groupId : null })
+      set({ tab: t, groupId: t === 'attend' ? get().groupId : null, ...(isAttendTab(t) ? { attendTab: t } : {}) })
+    },
+    goTab(t) {
+      const { tab, groupId } = get()
+      if (groupId && (t !== 'attend' || tab === 'attend')) {
+        // 휴대폰 '뒤로 가기'와 같은 길로 닫아야 방문 기록이 꼬이지 않는다 (App 이 기록을 보고 목장 화면을 닫아요)
+        if ((history.state as { group?: string } | null)?.group) history.back()
+        else get().openGroup(null)
+      }
+      if (t !== tab) {
+        get().setTab(t)
+        // 다른 탭은 맨 위부터 보여 준다 (앞 탭의 스크롤 위치가 남으면 빈 화면처럼 보인다)
+        window.scrollTo(0, 0)
+      } else {
+        // 같은 탭을 또 눌렀다: 그 탭의 첫 화면으로 (캘린더는 열린 회의록을 닫아요)
+        set((s) => ({ tabRetap: s.tabRetap + 1 }))
+      }
     },
     openGroup(id) {
       set({ groupId: id })

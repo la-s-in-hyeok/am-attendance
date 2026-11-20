@@ -1,0 +1,212 @@
+/*
+ * 회의록 편집기 글 모양 (노션처럼 깔끔한 흰 종이).
+ * .am-note 안에서만 써요. index.css(앱 전체)는 건드리지 않아요.
+ */
+
+.am-note .ProseMirror {
+  min-height: 45vh;
+  padding-bottom: 6rem;
+  outline: none;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--color-ink);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  /* 글자를 길게 누르면 선택돼야 해요 (달력 쪽의 선택 막기와 상관없이) */
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  caret-color: var(--color-brand);
+}
+
+.am-note .ProseMirror > * + * {
+  margin-top: 0.35em;
+}
+
+.am-note .ProseMirror p {
+  margin: 0;
+}
+
+.am-note .ProseMirror h2 {
+  margin: 1.1em 0 0.2em;
+  font-size: 22px;
+  line-height: 1.35;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.am-note .ProseMirror h3 {
+  margin: 0.9em 0 0.15em;
+  font-size: 18px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+.am-note .ProseMirror > h2:first-child,
+.am-note .ProseMirror > h3:first-child {
+  margin-top: 0.2em;
+}
+
+.am-note .ProseMirror strong {
+  font-weight: 700;
+}
+
+.am-note .ProseMirror a {
+  color: var(--color-brand-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.am-note .ProseMirror hr {
+  margin: 1.1em 0;
+  border: 0;
+  border-top: 1px solid var(--color-line);
+}
+.am-note .ProseMirror hr.ProseMirror-selectednode {
+  border-top-color: var(--color-brand);
+}
+
+/* 글머리·번호 목록 */
+.am-note .ProseMirror ul:not([data-type='taskList']),
+.am-note .ProseMirror ol {
+  margin: 0.2em 0;
+  padding-left: 1.5em;
+}
+.am-note .ProseMirror ul:not([data-type='taskList']) {
+  list-style: disc;
+}
+.am-note .ProseMirror ul:not([data-type='taskList']) ul:not([data-type='taskList']) {
+  list-style: circle;
+}
+.am-note .ProseMirror ol {
+  list-style: decimal;
+}
+.am-note .ProseMirror li > p {
+  margin: 0;
+}
+.am-note .ProseMirror li::marker {
+  color: var(--color-ink-3);
+}
+
+/* 체크 목록 */
+.am-note .ProseMirror ul[data-type='taskList'] {
+  margin: 0.2em 0;
+  padding: 0;
+  list-style: none;
+}
+.am-note .ProseMirror ul[data-type='taskList'] ul[data-type='taskList'] {
+  padding-left: 1.6em;
+}
+.am-note .ProseMirror li[data-type='taskItem'],
+.am-note .ProseMirror ul[data-type='taskList'] > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+}
+.am-note .ProseMirror ul[data-type='taskList'] > li > label {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 1.7em;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* 네모 칸은 작아도 손가락으로 누르기 쉽게, 둘레를 투명하게 넓혀요 (약 40px) */
+.am-note .ProseMirror ul[data-type='taskList'] > li > label::after {
+  content: '';
+  position: absolute;
+  inset: -8px -6px -8px -12px;
+}
+.am-note .ProseMirror ul[data-type='taskList'] > li > label input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--color-brand);
+  cursor: pointer;
+}
+.am-note .ProseMirror ul[data-type='taskList'] > li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.am-note .ProseMirror ul[data-type='taskList'] > li[data-checked='true'] > div > p {
+  color: var(--color-ink-3);
+  text-decoration: line-through;
+}
+
+/* ▶ 토글 */
+.am-note .ProseMirror .am-details {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.15em;
+  margin: 0.2em 0;
+}
+.am-note .ProseMirror .am-details > button {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.7em;
+  margin-left: -0.3em;
+  border-radius: 6px;
+  color: var(--color-ink-2);
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* ▶ 는 작아도 누르기 쉽게, 둘레를 투명하게 넓혀요 (약 44px). 오른쪽은 조금만 (제목 글자를 누를 자리) */
+.am-note .ProseMirror .am-details > button::after {
+  content: '';
+  position: absolute;
+  inset: -9px -3px -9px -14px;
+}
+.am-note .ProseMirror .am-details > button:hover {
+  background: var(--color-hover);
+}
+.am-note .ProseMirror .am-details > button::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid currentColor;
+  transition: transform 0.15s ease;
+}
+.am-note .ProseMirror .am-details.is-open > button::before {
+  transform: rotate(90deg);
+}
+.am-note .ProseMirror .am-details > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.am-note .ProseMirror .am-details summary {
+  display: block;
+  list-style: none;
+  font-weight: 600;
+  cursor: text;
+}
+.am-note .ProseMirror .am-details summary::-webkit-details-marker {
+  display: none;
+}
+.am-note .ProseMirror .am-details [data-type='detailsContent'] {
+  margin-top: 0.15em;
+}
+.am-note .ProseMirror .am-details [data-type='detailsContent'][hidden] {
+  display: none;
+}
+
+/* 비어 있을 때 안내 글자 */
+.am-note .ProseMirror .is-empty::before,
+.am-note .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-ink-3);
+  opacity: 0.75;
+}
+
+.am-note .ProseMirror .ProseMirror-gapcursor:after {
+  border-top-color: var(--color-ink);
+}

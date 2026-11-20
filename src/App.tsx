@@ -1,18 +1,23 @@
 import { useEffect } from 'react'
-import { useStore, type Tab } from './store'
+import { isAttendTab, useStore, type Tab } from './store'
 import { Icon, SyncBadge, Toasts, type IconName } from './components/ui'
 import { LoginPage } from './pages/LoginPage'
 import { AttendPage } from './pages/AttendPage'
 import { ReportPage } from './pages/ReportPage'
 import { StatsPage } from './pages/StatsPage'
+import { CalendarPage } from './pages/CalendarPage'
+import { GroupReportPage } from './pages/GroupReportPage'
 import { ManagePage } from './pages/ManagePage'
 import { CompletionAlerts } from './components/notify/CompletionAlerts'
 import { NotifyGate } from './components/notify/NotifyGate'
 
-const TABS: { id: Tab; label: string; icon: IconName }[] = [
-  { id: 'attend', label: '출석', icon: 'users' },
-  { id: 'report', label: '보고서', icon: 'doc' },
-  { id: 'stats', label: '통계', icon: 'chart' },
+/** 큰 탭(아래 탭·PC 왼쪽 메뉴). 출석부 안에는 출석·출석보고·통계가 있어요 (AttendSectionTabs) */
+type Section = Extract<Tab, 'attend' | 'calendar' | 'groupReport' | 'manage'>
+
+const TABS: { id: Section; label: string; icon: IconName }[] = [
+  { id: 'attend', label: '출석부', icon: 'users' },
+  { id: 'calendar', label: '캘린더', icon: 'calendar' },
+  { id: 'groupReport', label: '목장보고서', icon: 'folder' },
   { id: 'manage', label: '관리', icon: 'settings' },
 ]
 
@@ -21,7 +26,8 @@ export default function App() {
   const booting = useStore((s) => s.booting)
   const bootError = useStore((s) => s.bootError)
   const tab = useStore((s) => s.tab)
-  const setTab = useStore((s) => s.setTab)
+  const attendTab = useStore((s) => s.attendTab)
+  const goTab = useStore((s) => s.goTab)
   const groupId = useStore((s) => s.groupId)
   const openGroup = useStore((s) => s.openGroup)
   const checkSundayRollover = useStore((s) => s.checkSundayRollover)
@@ -53,7 +59,8 @@ export default function App() {
 
   // 휴대폰 키보드가 올라와 있는 동안만 아래 막대를 숨긴다 (index.css 의 .kb-hide).
   // 입력칸에 초점이 있는지만 보면, 안드로이드에서 뒤로 가기로 키보드만 닫았을 때(초점은 남음) 막대가 계속 숨어 있어서
-  // 보이는 화면 높이가 실제로 줄었는지도 함께 본다
+  // 보이는 화면 높이가 실제로 줄었는지도 함께 본다.
+  // 회의록 에디터처럼 글을 바로 쓰는 칸(contenteditable)도 입력칸으로 친다
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv || !window.matchMedia('(pointer: coarse)').matches) return
@@ -65,7 +72,10 @@ export default function App() {
       return (
         el instanceof HTMLElement &&
         el.closest('main') !== null &&
-        el.matches('textarea, input:not([type=checkbox], [type=radio], [type=file], [type=range], [type=button], [type=submit], [type=date], [type=month])')
+        (el.isContentEditable ||
+          el.matches(
+            'textarea, [contenteditable="true"], input:not([type=checkbox], [type=radio], [type=file], [type=range], [type=button], [type=submit], [type=date], [type=month])',
+          ))
       )
     }
     const update = () => {
@@ -115,18 +125,13 @@ export default function App() {
     }
   }, [groupId, openGroup])
 
-  /** 탭을 누를 때: 목장 화면이 열려 있으면 '뒤로 가기' 기록까지 정리하고 닫는다 */
-  const goTab = (t: Tab) => {
-    if (groupId && (t !== 'attend' || tab === 'attend')) {
-      if (history.state?.group) history.back()
-      else openGroup(null)
-    }
-    if (t !== tab) {
-      setTab(t)
-      // 다른 탭은 맨 위부터 보여 준다 (앞 탭의 스크롤 위치가 남으면 빈 화면처럼 보인다)
-      window.scrollTo(0, 0)
-    }
-  }
+  /** 지금 켜져 있는 큰 탭 (출석·출석보고·통계는 모두 '출석부') */
+  const section: Section = isAttendTab(tab) ? 'attend' : tab
+  /**
+   * 큰 탭을 누를 때: 출석부는 마지막으로 보던 안쪽 탭(출석·출석보고·통계)으로.
+   * 목장 화면 닫기·'뒤로 가기' 기록 정리·맨 위로는 store 의 goTab 이 해요
+   */
+  const goSection = (id: Section) => goTab(id === 'attend' ? attendTab : id)
 
   if (!authed)
     return (
@@ -139,7 +144,7 @@ export default function App() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-3">
         <div className="h-9 w-9 animate-spin rounded-full border-[3px] border-line border-t-brand" />
-        <p className="text-sm font-medium">출석부를 불러오는 중…</p>
+        <p className="text-sm font-medium">불러오는 중…</p>
       </div>
     )
 
@@ -160,17 +165,16 @@ export default function App() {
         <aside className="no-print sticky top-0 hidden h-dvh w-52 shrink-0 flex-col border-r border-line bg-surface px-3 py-6 md:flex lg:w-60 lg:px-4">
           <div className="mb-8 px-2">
             <img src="./logo-full.png" alt="AM청년회" width={112} height={40} className="h-10 w-auto" />
-            <p className="mt-2 text-[13px] font-bold tracking-tight text-ink-3">출석부</p>
           </div>
           <nav className="flex flex-col gap-1" aria-label="메뉴">
             {TABS.map((t) => (
               <button
                 key={t.id}
                 type="button"
-                onClick={() => goTab(t.id)}
-                aria-current={tab === t.id ? 'page' : undefined}
-                className={`flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] font-semibold transition ${
-                  tab === t.id ? 'bg-brand text-white' : 'text-ink-2 hover:bg-brand-soft'
+                onClick={() => goSection(t.id)}
+                aria-current={section === t.id ? 'page' : undefined}
+                className={`flex h-11 items-center gap-3 rounded-xl px-3 text-[15px] font-semibold whitespace-nowrap transition ${
+                  section === t.id ? 'bg-brand text-white' : 'text-ink-2 hover:bg-brand-soft'
                 }`}
               >
                 <Icon name={t.icon} size={19} />
@@ -188,6 +192,8 @@ export default function App() {
           {tab === 'attend' && <AttendPage />}
           {tab === 'report' && <ReportPage />}
           {tab === 'stats' && <StatsPage />}
+          {tab === 'calendar' && <CalendarPage />}
+          {tab === 'groupReport' && <GroupReportPage />}
           {tab === 'manage' && <ManagePage />}
         </main>
 
@@ -197,22 +203,26 @@ export default function App() {
           className="kb-hide no-print safe-bottom fixed inset-x-0 bottom-0 z-40 border-t border-line bg-surface/95 shadow-[0_-4px_16px_rgb(16_42_67/0.06)] backdrop-blur-xl md:hidden"
         >
           <div className="mx-auto flex max-w-lg">
-            {TABS.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => goTab(t.id)}
-                aria-current={tab === t.id ? 'page' : undefined}
-                className={`flex h-16 flex-1 flex-col items-center justify-center gap-1 text-[13px] leading-none transition ${
-                  tab === t.id ? 'font-bold text-brand' : 'font-medium text-ink-3'
-                }`}
-              >
-                <span className={`flex h-[30px] w-14 items-center justify-center rounded-full transition ${tab === t.id ? 'bg-brand-soft' : ''}`}>
-                  <Icon name={t.icon} size={20} strokeWidth={tab === t.id ? 2.2 : 1.9} />
-                </span>
-                {t.label}
-              </button>
-            ))}
+            {TABS.map((t) => {
+              const on = section === t.id
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => goSection(t.id)}
+                  aria-current={on ? 'page' : undefined}
+                  // 4칸이라 320px 폭에서 한 칸이 80px: '목장보고서'도 한 줄에 들어가게 줄바꿈을 막는다
+                  className={`flex h-16 min-w-0 flex-1 flex-col items-center justify-center gap-1 text-[13px] leading-none tracking-tight whitespace-nowrap transition ${
+                    on ? 'font-bold text-brand' : 'font-medium text-ink-3'
+                  }`}
+                >
+                  <span className={`flex h-[30px] w-14 items-center justify-center rounded-full transition ${on ? 'bg-brand-soft' : ''}`}>
+                    <Icon name={t.icon} size={20} strokeWidth={on ? 2.2 : 1.9} />
+                  </span>
+                  {t.label}
+                </button>
+              )
+            })}
           </div>
         </nav>
 

@@ -17,7 +17,7 @@ import {
 import { Button } from '../ui'
 
 /**
- * 알림을 켜야만 출석부를 쓸 수 있게 막는 화면.
+ * 알림을 켜야만 앱을 쓸 수 있게 막는 화면.
  * - 서버 연결 버전에서만 (체험판은 알림이 없어서 막지 않아요)
  * - 앱을 열 때, 앱으로 돌아올 때마다 다시 검사해요 (휴대폰 설정에서 꺼도 다시 막혀요)
  * - 막혀 있는 동안에는 알림을 켜는 데 필요한 것 말고는 아무 버튼도 없어요
@@ -139,7 +139,7 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
   const kakao = inAppBrowser() === 'kakao'
   const chromeHref = openInChromeHref(address)
 
-  let title = '알림을 켜야 출석부를 쓸 수 있어요'
+  let title = '알림을 켜야 앱을 쓸 수 있어요'
   let body: ReactNode = null
   let action: ReactNode = null
 
@@ -168,8 +168,8 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
         <p>이 기기에서 알림을 막아 두었어요. 아래처럼 다시 허용한 뒤 이 화면으로 돌아오면 바로 열려요.</p>
         {ios ? (
           <>
-            <Steps items={['설정 앱 열기', '알림 → AM 출석부', '‘알림 허용’ 켜기']} />
-            <p className="text-[14px] text-ink-3">그래도 안 되면 홈 화면의 AM 출석부 아이콘을 지우고, Safari에서 다시 ‘홈 화면에 추가’ 해 주세요.</p>
+            <Steps items={['설정 앱 열기', '알림 → AM청년회 (예전에 추가했으면 예전 이름으로 보여요)', '‘알림 허용’ 켜기']} />
+            <p className="text-[14px] text-ink-3">그래도 안 되면 홈 화면의 AM청년회 아이콘을 지우고, Safari에서 다시 ‘홈 화면에 추가’ 해 주세요.</p>
           </>
         ) : desktop ? (
           <>
@@ -189,7 +189,7 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
           </>
         ) : android && isStandalone() ? (
           <>
-            <Steps items={['홈 화면의 AM 출석부 아이콘을 길게 누르기', '앱 정보(ⓘ) → 알림 → ‘알림 허용’ 켜기', '이 화면으로 돌아오기']} />
+            <Steps items={['홈 화면의 AM청년회 아이콘을 길게 누르기', '앱 정보(ⓘ) → 알림 → ‘알림 허용’ 켜기', '이 화면으로 돌아오기']} />
             <AndroidNote standalone />
           </>
         ) : (
@@ -257,7 +257,7 @@ export function GateScreen({ status, onChanged }: { status: NotifyStatus; onChan
     body = (
       <>
         <p>아이폰은 홈 화면에 추가한 앱에서만 알림을 받을 수 있어요.</p>
-        <Steps items={['아래쪽 공유(⬆︎) 누르기 (안 보이면 ··· 안에 있어요)', '‘홈 화면에 추가’ 누르기', '홈 화면의 AM 출석부 아이콘으로 열고 로그인']} />
+        <Steps items={['아래쪽 공유(⬆︎) 누르기 (안 보이면 ··· 안에 있어요)', '‘홈 화면에 추가’ 누르기', '홈 화면의 AM청년회 아이콘으로 열고 로그인']} />
       </>
     )
   } else if (status === 'ios-old') {
@@ -288,7 +288,7 @@ function AndroidNote({ standalone }: { standalone: boolean }) {
   return (
     <p className="text-[14px] leading-relaxed text-ink-3">
       {standalone
-        ? '켰는데도 안 열리면 최근 앱 화면에서 AM 출석부를 위로 밀어 완전히 닫고 다시 열어 주세요.'
+        ? '켰는데도 안 열리면 최근 앱 화면에서 AM청년회를 위로 밀어 완전히 닫고 다시 열어 주세요.'
         : '비밀 모드(시크릿 탭)에서는 알림을 켤 수 없어요. 일반 탭으로 열어 주세요.'}
     </p>
   )

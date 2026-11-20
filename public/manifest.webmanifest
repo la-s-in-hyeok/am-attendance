@@ -1,6 +1,6 @@
 {
-  "name": "AM청년회 출석부",
-  "short_name": "AM 출석부",
+  "name": "AM청년회",
+  "short_name": "AM청년회",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

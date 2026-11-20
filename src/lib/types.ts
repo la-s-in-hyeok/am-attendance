@@ -113,3 +113,61 @@ export interface CompletionNotice {
   /** 그때의 수정 횟수 (같은 알림을 한 번만 보여 주기 위해) */
   n: number
 }
+
+/* ───────────── 청년회 캘린더 ───────────── */
+
+/** 날짜 (YYYY-MM-DD, 아무 요일이나) */
+export type DayISO = string
+
+/** 일정 색 (파스텔). 화면 색은 src/components/calendar/colors.ts */
+export const EVENT_COLORS = ['pink', 'peach', 'butter', 'mint', 'sky', 'lavender', 'lilac', 'aqua'] as const
+export type EventColor = (typeof EVENT_COLORS)[number]
+
+/** 청년회 일정 (하루 종일 일정만. 여러 날이면 startDate ~ endDate, 양 끝 포함) */
+export interface CalEvent {
+  id: string
+  title: string
+  startDate: DayISO
+  endDate: DayISO
+  color: EventColor
+  /** 회의록에 글이 있는지 (목록에 📝 표시) */
+  hasNote: boolean
+  updatedAt: string
+}
+
+/** 일정을 저장할 때 보내는 값 (새 일정이면 id 를 새로 만들어서) */
+export type CalEventInput = Pick<CalEvent, 'id' | 'title' | 'startDate' | 'endDate' | 'color'>
+
+/** 한 일정의 회의록 */
+export interface EventNote {
+  /** 에디터(Tiptap) JSON 문서. 아직 아무도 안 썼으면 null */
+  doc: unknown | null
+  /** 서버에 저장된 판 번호 (충돌 확인용). 아직 없으면 0 */
+  version: number
+  updatedAt: string | null
+}
+
+/** 회의록 저장 결과. 그사이 다른 기기가 먼저 저장했으면 ok:false 와 최신 내용 */
+export type SaveNoteResult = { ok: true; version: number; updatedAt: string } | { ok: false; latest: EventNote }
+
+/* ───────────── 목장보고서 (매주 목장마다 PDF 하나) ───────────── */
+
+/** 한 목장이 낸 보고서 (서버에는 변환된 PDF 만 있어요) */
+export interface ReportFile {
+  groupId: string
+  /** 저장소 안 경로 (무작위 이름이라 추측할 수 없어요) */
+  path: string
+  /** 올린 원래 파일 이름 (예: '사랑목장 보고서.hwp') */
+  fileName: string
+  pages: number
+  sizeBytes: number
+  uploadedAt: string
+}
+
+/** 한 주일의 목장보고서 */
+export interface ReportWeek {
+  date: ISODate
+  /** 마감한 시각. null 이면 아직 마감 전 */
+  closedAt: string | null
+  files: ReportFile[]
+}

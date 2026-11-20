@@ -86,7 +86,7 @@ export function SettingsSection() {
         </Card>
         <p className="mt-2 px-1 text-[13px] leading-relaxed text-ink-3">
           {mode === 'cloud'
-            ? '모든 목자·총무가 같은 출석부를 함께 봐요. 한 사람이 바꾸면 다른 휴대폰에도 바로 반영돼요.'
+            ? '모든 목자·총무가 같은 출석부·캘린더·목장보고서를 함께 봐요. 한 사람이 바꾸면 다른 휴대폰에도 바로 반영돼요.'
             : '체험 모드예요. 이 기기(브라우저)에만 저장되고 다른 사람과 공유되지 않아요.'}
         </p>
 
@@ -109,7 +109,7 @@ export function SettingsSection() {
         open={open === 'logout'}
         title="로그아웃할까요?"
         confirmLabel="로그아웃"
-        message="다시 들어올 때 비밀번호를 넣어야 해요. 저장된 출석부는 그대로 있어요."
+        message="다시 들어올 때 비밀번호를 넣어야 해요. 저장된 내용은 그대로 있어요."
         onConfirm={logout}
         onClose={() => setOpen(null)}
       />

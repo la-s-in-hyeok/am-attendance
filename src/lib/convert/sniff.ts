@@ -143,3 +143,43 @@ export function hwpPasswordProtected(bytes: Uint8Array): boolean {
   }
   return false
 }
+
+/** 압축을 푼 크기 한도 (워드·한글 파일). 정상 보고서는 몇십 MB 를 넘지 않아요 */
+export const MAX_UNZIPPED_BYTES = 300 * 1024 * 1024
+/** 파일 하나(본문 XML 등)를 푼 크기 한도 */
+export const MAX_UNZIPPED_ENTRY_BYTES = 120 * 1024 * 1024
+const MAX_ZIP_ENTRIES = 20_000
+
+/**
+ * ZIP 상자(docx·hwpx)를 풀면 너무 커지는지 봐요 (작은 파일이 풀면 몇 GB 가 되는 '압축 폭탄' 막기).
+ * 맨 뒤 '중앙 디렉터리'에 적힌 크기를 더해요. 읽을 수 없으면 false (나중에 열 때 '손상된 파일'로 안내돼요)
+ */
+export function zipTooLarge(bytes: Uint8Array): boolean {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const n = bytes.length
+  // 끝에서 '중앙 디렉터리 끝' 표시(PK\5\6)를 찾아요 (뒤에 주석이 최대 64KB 붙을 수 있어요)
+  let eocd = -1
+  for (let i = n - 22; i >= Math.max(0, n - 22 - 0xffff); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) {
+      eocd = i
+      break
+    }
+  }
+  if (eocd < 0) return false
+  const entries = dv.getUint16(eocd + 10, true)
+  const cdOffset = dv.getUint32(eocd + 16, true)
+  // ZIP64(4GB 넘는 상자) 표시면 보고서 파일일 수 없어요
+  if (entries === 0xffff || cdOffset === 0xffffffff) return true
+  if (entries > MAX_ZIP_ENTRIES) return true
+  let p = cdOffset
+  let total = 0
+  for (let k = 0; k < entries; k++) {
+    if (p + 46 > n || dv.getUint32(p, true) !== 0x02014b50) return false
+    const size = dv.getUint32(p + 24, true)
+    if (size === 0xffffffff || size > MAX_UNZIPPED_ENTRY_BYTES) return true
+    total += size
+    if (total > MAX_UNZIPPED_BYTES) return true
+    p += 46 + dv.getUint16(p + 28, true) + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true)
+  }
+  return false
+}

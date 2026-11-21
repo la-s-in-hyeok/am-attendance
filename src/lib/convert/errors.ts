@@ -32,3 +32,22 @@ export function tooManyPages(pages: number): ConvertError {
     `${pages}쪽이라 너무 많아요. 한 번에 ${MAX_PAGES}쪽까지 올릴 수 있어요. 필요한 쪽만 골라 'PDF로 저장'해서 올려 주세요.`,
   )
 }
+
+/** 변환을 멈추라는 신호가 왔으면 멈춰요 (시간이 너무 오래 걸렸거나, 화면에서 취소했을 때) */
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw abortReason(signal)
+}
+
+export function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('변환을 멈췄어요.', 'AbortError')
+}
+
+/** 변환에 넘기는 공통 연결 (진행 알림·안내 문장·멈춤 신호) */
+export type ConvertHooks = {
+  ready: () => void
+  page: (page: number, pages: number) => void
+  warn: (w: string) => void
+  signal?: AbortSignal
+  /** 다음 단계가 오래 걸려도 된다고 알려요 (큰 엔진 파일 받기 등). 다음 진행 알림 전까지 이만큼(ms)은 멈춘 것으로 보지 않아요 */
+  allow?: (ms: number) => void
+}

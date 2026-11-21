@@ -11,6 +11,8 @@
  * - 워드가 센 쪽수(docProps/app.xml)를 읽어 둬요. 쪽 나누기를 워드와 맞추는 데 써요.
  */
 import type JSZipType from 'jszip'
+import { throwIfAborted } from './errors'
+import { breathe } from './raster'
 
 type JSZipCtor = typeof JSZipType
 
@@ -24,13 +26,13 @@ export const KEEP_ROW_MARK = '_amKr'
 /** '같은 스타일 문단 사이 간격 없애기'(contextualSpacing) 문단 표시 */
 export const CONTEXTUAL_MARK = '_amCs'
 /** 문단 끝 표시용 글자 */
-export const PARA_END = '​'
+export const PARA_END = '\u200b'
 /** 머리말·꼬리말의 쪽 번호(PAGE)·전체 쪽수(NUMPAGES) 자리. 쪽마다 그리기 직전에 숫자로 바꿔요 */
 export const PAGE_TOKEN = '\uE000'
 export const TOTAL_TOKEN = '\uE001'
 
 export type DocxPrep = {
-  /** 손본 docx */
+  /** 손본 docx (docx-preview 가 읽고 나면 비워요: 메모리를 아끼려고) */
   data: Uint8Array
   /** 워드가 센 쪽수 (워드로 저장한 파일만, 모르면 null) */
   wordPages: number | null
@@ -335,8 +337,9 @@ function readWordPages(app: string | null): number | null {
 
 const XML_PARTS = /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/
 
-export async function prepareDocx(file: Blob, JSZip: JSZipCtor): Promise<DocxPrep> {
-  const zip = await JSZip.loadAsync(await file.arrayBuffer())
+/** bytes 는 그대로 읽어요 (복사하지 않아요). 다 쓰면 버려도 돼요 */
+export async function prepareDocx(bytes: Uint8Array, JSZip: JSZipCtor, signal?: AbortSignal): Promise<DocxPrep> {
+  const zip = await JSZip.loadAsync(bytes)
   const text = async (path: string) => {
     const f = zip.file(path)
     return f ? f.async('string') : null
@@ -379,6 +382,9 @@ export async function prepareDocx(file: Blob, JSZip: JSZipCtor): Promise<DocxPre
   const byStyle = contextualByStyle(stylesDoc)
   for (const path of Object.keys(zip.files)) {
     if (!XML_PARTS.test(path)) continue
+    // 본문 XML 이 크면 한 부분에 시간이 꽤 걸려요. 부분마다 화면이 숨 쉴 틈을 줘요
+    await breathe()
+    throwIfAborted(signal)
     const xml = await text(path)
     if (!xml) continue
     const d = parse(xml)

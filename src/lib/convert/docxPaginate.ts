@@ -151,24 +151,36 @@ function atomAt(atoms: [number, number][], y: number): [number, number] | null {
   return null
 }
 
-/** 칸 내용의 높이 (위아래 칸 여백 포함) */
-function naturalHeight(td: Element, win: Window): number {
+/**
+ * 칸 내용이 차지하는 높이 (내용이 없으면 null).
+ * 글자 줄이 아주 많은 칸도 있어서 Math.max(...배열) 대신 하나씩 봐요 (인자가 너무 많으면 멈춰요)
+ */
+function contentHeight(td: Element): number | null {
   const range = td.ownerDocument.createRange()
   range.selectNodeContents(td)
-  const rects = Array.from(range.getClientRects()).filter((r) => r.height > 0)
+  const rects = range.getClientRects()
+  let top = Infinity
+  let bottom = -Infinity
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i]
+    if (r.height <= 0) continue
+    if (r.top < top) top = r.top
+    if (r.bottom > bottom) bottom = r.bottom
+  }
+  return bottom >= top ? bottom - top : null
+}
+
+/** 칸 내용의 높이 (위아래 칸 여백 포함) */
+function naturalHeight(td: Element, win: Window): number {
   const cs = win.getComputedStyle(td)
   const pad = px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth)
-  if (rects.length === 0) return pad
-  return Math.max(...rects.map((r) => r.bottom)) - Math.min(...rects.map((r) => r.top)) + pad
+  return (contentHeight(td) ?? 0) + pad
 }
 
 /** 칸 내용이 칸 높이를 거의 다 채우는지 (그러면 세로 맞춤과 상관없이 위치가 워드와 같아요) */
 function fillsCell(td: Element): boolean {
-  const range = td.ownerDocument.createRange()
-  range.selectNodeContents(td)
-  const rects = Array.from(range.getClientRects()).filter((r) => r.height > 0)
-  if (rects.length === 0) return false
-  const content = Math.max(...rects.map((r) => r.bottom)) - Math.min(...rects.map((r) => r.top))
+  const content = contentHeight(td)
+  if (content === null) return false
   return content >= td.getBoundingClientRect().height - 30
 }
 
@@ -221,7 +233,8 @@ export function measureSection(section: HTMLElement, win: Window): SectionGeo {
     if (r.height <= 0 || r.height > bodyH) continue
     const cells = Array.from(tr.children).filter((c) => c.tagName === 'TD' || c.tagName === 'TH')
     const keep = cells[0]?.querySelector(`span[id^="${KEEP_ROW_MARK}"]`) != null
-    const natural = Math.max(0, ...cells.map((c) => naturalHeight(c, win)))
+    let natural = 0
+    for (const c of cells) natural = Math.max(natural, naturalHeight(c, win))
     if (keep || natural < r.height - 8 || cells.every((c) => lineCount(c) < 2)) raw.push([r.top - top0, r.bottom - top0])
     else for (const c of cells) if (win.getComputedStyle(c).verticalAlign !== 'top' && !fillsCell(c)) floating.add(c)
   }
@@ -553,7 +566,8 @@ export function alignSplitCells(pages: Slice[]): void {
     for (const tr of rowsCutAt(section, bottom)) {
       if (done.has(tr)) continue
       done.add(tr)
-      const rowTop = tr.getBoundingClientRect().top - top0
+      const rowBox = tr.getBoundingClientRect()
+      const rowTop = rowBox.top - top0
       const first = bottom - rowTop
       for (const td of Array.from(tr.children) as HTMLElement[]) {
         if (td.tagName !== 'TD' && td.tagName !== 'TH') continue
@@ -561,17 +575,23 @@ export function alignSplitCells(pages: Slice[]): void {
         const va = cs.verticalAlign
         // 내용이 칸을 채운 칸(여러 쪽에 걸쳐 이어지는 본문 칸)은 그대로 둬요
         if ((va !== 'middle' && va !== 'bottom') || fillsCell(td)) continue
-        const range = td.ownerDocument.createRange()
-        range.selectNodeContents(td)
-        const rects = Array.from(range.getClientRects()).filter((r) => r.height > 0)
-        if (rects.length === 0) continue
-        const content = Math.max(...rects.map((r) => r.bottom)) - Math.min(...rects.map((r) => r.top))
+        const content = contentHeight(td)
+        if (content === null) continue
         const pt = px(cs.paddingTop)
         const pb = px(cs.paddingBottom)
         const free = first - pt - pb - content
-        td.style.verticalAlign = 'top'
         // 첫 쪽 부분에 안 들어가면 다음 쪽 부분의 맨 위로
-        td.style.paddingTop = `${free < 0 ? first + pt : pt + (va === 'middle' ? free / 2 : free)}px`
+        const padTop = free < 0 ? first + pt : pt + (va === 'middle' ? free / 2 : free)
+        // 줄 높이가 늘면 쪽 나누기가 어긋나요. 칸 안에 다 안 들어가면 그대로 둬요
+        const room = td.getBoundingClientRect().height - px(cs.borderTopWidth) - px(cs.borderBottomWidth)
+        if (padTop + content + pb > room - 0.5) continue
+        const old = [td.style.verticalAlign, td.style.paddingTop] as const
+        td.style.verticalAlign = 'top'
+        td.style.paddingTop = `${padTop}px`
+        if (Math.abs(tr.getBoundingClientRect().height - rowBox.height) > 0.3) {
+          td.style.verticalAlign = old[0]
+          td.style.paddingTop = old[1]
+        }
       }
     }
   }

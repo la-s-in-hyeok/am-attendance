@@ -86,7 +86,8 @@ export function isolate(section: HTMLElement, top: number, bottom: number): (() 
   let last: Element = blocks[i1].el
   const rowsAbove: Element[] = []
   const rowsBelow: Element[] = []
-  let widthsOf: Element | null = null
+  // 표 줄을 뺀 표의 남은 줄 (뺀 뒤에도 칸 너비가 그대로인지 봐요. 위·아래 표가 다르면 둘 다)
+  const widthRows: Element[] = []
   // iframe 안 요소라 instanceof 는 믿을 수 없어요 (창마다 HTMLTableElement 가 달라요). 태그 이름으로 봐요
   const isTable = (el: Element): el is HTMLTableElement => el.tagName === 'TABLE'
   const firstEl = blocks[i0].el
@@ -98,7 +99,7 @@ export function isolate(section: HTMLElement, top: number, bottom: number): (() 
     if (g > 0) {
       for (const grp of groups.slice(0, g)) rowsAbove.push(...grp)
       first = groups[g][0]
-      widthsOf = first
+      widthRows.push(first)
     }
   }
   const lastEl = blocks[i1].el
@@ -111,7 +112,7 @@ export function isolate(section: HTMLElement, top: number, bottom: number): (() 
     if (g < groups.length - 1 && !rowsAbove.includes(groups[g][0])) {
       for (const grp of groups.slice(g + 1)) rowsBelow.push(...grp)
       last = groups[g][groups[g].length - 1]
-      widthsOf ??= last
+      widthRows.push(last)
     }
   }
   // 빼 봐야 별로 안 빨라지면 그대로 떠요
@@ -121,9 +122,10 @@ export function isolate(section: HTMLElement, top: number, bottom: number): (() 
   // 지금(문서 전체가 있을 때) 위치와 칸 너비
   const want0 = rel(first)
   const want1 = rel(last)
-  const cells = (row: Element | null) =>
-    row ? Array.from(row.children).map((c) => { const r = c.getBoundingClientRect(); return [r.left, r.width] }) : []
-  const widths = cells(widthsOf)
+  const cells = (row: Element) => Array.from(row.children).map((c) => { const r = c.getBoundingClientRect(); return [r.left, r.width] })
+  const widths = widthRows.map(cells)
+  // 남긴 내용이 끝나는 높이 (빼고 나면 그 아래의 각주·꼬리말이 이만큼 올라와요)
+  const tail0 = rel(blocks[i1].el) + blocks[i1].el.getBoundingClientRect().height
 
   // 앞에서 뺄 번호 문단의 껍데기 (번호 세기만 이어지게)
   const shell = doc.createElement('div')
@@ -134,10 +136,14 @@ export function isolate(section: HTMLElement, top: number, bottom: number): (() 
   }
   const spacer = doc.createElement('div')
   spacer.style.cssText = 'display:block;height:1px;margin:0;padding:0;border:0'
+  // 아래를 빼면 본문 뒤의 각주·꼬리말이 올라와 이 쪽 자리에 들어올 수 있어요. 그 자리를 빈 칸으로 채워 둬요
+  const filler = doc.createElement('div')
+  filler.style.cssText = 'display:block;height:0;margin:0;padding:0;border:0'
 
   const removed: { el: Element; parent: Node; next: Node | null }[] = []
   const restore = () => {
     spacer.remove()
+    filler.remove()
     shell.remove()
     for (let i = removed.length - 1; i >= 0; i--) {
       const r = removed[i]
@@ -159,11 +165,25 @@ export function isolate(section: HTMLElement, top: number, bottom: number): (() 
     return null
   }
   spacer.style.height = `${h}px`
-  const now = cells(widthsOf)
-  const sameWidths = now.length === widths.length && now.every((c, i) => Math.abs(c[0] - widths[i][0]) < 0.3 && Math.abs(c[1] - widths[i][1]) < 0.3)
+  const sameWidths = widthRows.every((row, k) => {
+    const now = cells(row)
+    const was = widths[k]
+    return now.length === was.length && now.every((c, i) => Math.abs(c[0] - was[i][0]) < 0.3 && Math.abs(c[1] - was[i][1]) < 0.3)
+  })
   if (!sameWidths || Math.abs(rel(first) - want0) > 0.3 || Math.abs(rel(last) - want1) > 0.3) {
     restore()
     return null
+  }
+  // 남긴 내용 아래 ~ 이 쪽 끝(조금 더)까지 빈 칸. 이 쪽보다 아래에 있던 것(각주·꼬리말)이 원래처럼 쪽 밖에 머물러요
+  if (below.length + rowsBelow.length + after.length > 0) {
+    article.appendChild(filler)
+    const tail = article.getBoundingClientRect().bottom - sTop()
+    const need = Math.max(bottom, tail0) + 4 - tail
+    if (need > 0) filler.style.height = `${need}px`
+    if (Math.abs(rel(first) - want0) > 0.3 || Math.abs(rel(last) - want1) > 0.3) {
+      restore()
+      return null
+    }
   }
   return restore
 }

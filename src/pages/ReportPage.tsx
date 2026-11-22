@@ -98,7 +98,7 @@ export function ReportPage() {
           onChange={chooseView}
           options={[
             { value: 'sheet', label: '출석부 표' },
-            { value: 'absence', label: '결석 심방보고' },
+            { value: 'absence', label: '목장심방 현황' },
           ]}
         />
 

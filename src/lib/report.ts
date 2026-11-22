@@ -1,7 +1,7 @@
 /**
  * 보고서용 순수 함수 모음
  * - 임원 단톡방에 붙여 넣는 목장별 보고 글 ([11월 15일 목장심방 : 믿음])
- * - 결석 심방보고 (타지 / 기타(사유) / 연락두절) — 화면·인쇄·Word·엑셀이 함께 쓴다
+ * - 목장심방 현황 (출석자 / 결석자 / 기타(사유: 타지역·연락두절·기타)) — 화면·인쇄·Word·엑셀이 함께 쓴다
  * - 엑셀 출석부 모양의 표 데이터 (화면·인쇄·Word·엑셀이 함께 쓴다)
  */
 import type { Group, ISODate, NamedNote, Role, Service, Status, WeekNote } from './types'
@@ -420,9 +420,9 @@ export function attendeeRows(week: GroupWeek[]): AttendeeRow[] {
   return out
 }
 
-/* ───────────── 결석 심방보고 (타지 / 기타(사유) / 연락두절) ───────────── */
+/* ───────────── 목장심방 현황 (출석자 / 결석자 / 기타(사유)) ───────────── */
 
-/** 결석 심방보고의 세 칸 — 26년 회장 엑셀과 같은 순서 */
+/** 결석의 세 가지 — 26년 '목장심방 현황' 엑셀의 기타(사유) 칸과 같은 순서는 VISIT_CATEGORIES */
 export type AbsenceCategory = 'away' | 'other' | 'nocontact'
 
 export const ABSENCE_CATEGORIES: readonly AbsenceCategory[] = ['away', 'other', 'nocontact']
@@ -440,7 +440,7 @@ export const ABSENCE_HEX: Record<AbsenceCategory, string> = {
   nocontact: 'E6E8EC',
 }
 
-/** 결석 심방보고에 오르는 한 사람 */
+/** 목장심방 현황에 오르는 한 사람 */
 export interface AbsencePerson {
   memberId: string
   name: string
@@ -450,6 +450,8 @@ export interface AbsencePerson {
 
 export interface AbsenceGroup {
   group: Group
+  /** 출석한 사람 (1부·2부) */
+  present: AbsencePerson[]
   away: AbsencePerson[]
   other: AbsencePerson[]
   nocontact: AbsencePerson[]
@@ -461,7 +463,7 @@ export interface AbsenceGroup {
 
 export interface AbsenceReport {
   date: ISODate
-  /** 2026 AM 청년회 결석 심방보고 (11.15) */
+  /** AM청년회 목장심방 현황 (26.11.15) */
   title: string
   /** 목장원이 있는 목장만, 목장 순서대로 */
   groups: AbsenceGroup[]
@@ -469,14 +471,19 @@ export interface AbsenceReport {
   totals: Counts
 }
 
-/** 2026 AM 청년회 결석 심방보고 (11.15) */
-export function absenceTitle(date: ISODate): string {
-  return `${date.slice(0, 4)} AM 청년회 결석 심방보고 (${labelDot(date)})`
+/** 26.11.15 (목장심방 현황 제목·파일 이름에 쓰는 날짜) */
+export function visitStamp(date: ISODate): string {
+  return `${date.slice(2, 4)}.${labelDot(date)}`
 }
 
-/** AM청년회 결석심방보고 2026.11.15.xlsx */
+/** AM청년회 목장심방 현황 (26.11.15) */
+export function absenceTitle(date: ISODate): string {
+  return `AM청년회 목장심방 현황 (${visitStamp(date)})`
+}
+
+/** AM청년회 목장심방 현황 (26.11.15).xlsx */
 export function absenceFileName(date: ISODate, ext: 'docx' | 'xlsx'): string {
-  return `AM청년회 결석심방보고 ${fileStamp(date)}.${ext}`
+  return `${absenceTitle(date)}.${ext}`
 }
 
 /** 이름(메모) — 메모가 없으면 이름만 */
@@ -489,18 +496,17 @@ export function absenceCellText(list: AbsencePerson[]): string {
   return list.map(absencePersonText).join(', ')
 }
 
-/** 목장 하나의 결석 심방보고 */
+/** 목장 하나의 목장심방 현황 */
 export function absenceGroup(gw: GroupWeek): AbsenceGroup {
-  const g: AbsenceGroup = { group: gw.group, away: [], other: [], nocontact: [], unchecked: [], summary: gw.summary }
+  const g: AbsenceGroup = { group: gw.group, present: [], away: [], other: [], nocontact: [], unchecked: [], summary: gw.summary }
   for (const e of gw.entries) {
-    if (e.status === 'present') continue
     const person: AbsencePerson = { memberId: e.member.id, name: e.member.name, memo: e.record?.reason?.trim() ?? '' }
     g[e.status].push(person)
   }
   return g
 }
 
-/** 이번 주 결석 심방보고 (목장원이 한 명도 없는 목장은 뺀다) */
+/** 이번 주 목장심방 현황 (목장원이 한 명도 없는 목장은 뺀다) */
 export function buildAbsenceReport(date: ISODate, week: GroupWeek[]): AbsenceReport {
   const groups = week.filter((gw) => gw.entries.length > 0).map(absenceGroup)
   const totals = groups.reduce((acc, g) => addCounts(acc, g.summary), emptyCounts())
@@ -517,16 +523,7 @@ export function uncheckedLine(report: AbsenceReport): string {
   return report.groups.flatMap((g) => g.unchecked.map((p) => `${p.name}(${g.group.name})`)).join(', ')
 }
 
-export interface AbsenceListRow {
-  group: string
-  name: string
-  category: AbsenceCategory | 'unchecked'
-  /** '타지' / '기타' / '연락두절' / '미확인' */
-  label: string
-  memo: string
-}
-
-/** 명단형 '구분' 칸 글 */
+/** 구분 글 (현황 칸·합계) */
 export const ABSENCE_KIND_LABEL: Record<AbsenceCategory | 'unchecked', string> = {
   away: '타지',
   other: '기타',
@@ -534,15 +531,52 @@ export const ABSENCE_KIND_LABEL: Record<AbsenceCategory | 'unchecked', string> =
   unchecked: '미확인',
 }
 
-/** 한 사람에 한 줄: 구분(타지 → 기타 → 연락두절 → 미확인) 순, 같은 구분 안에서는 목장 순 */
-export function absenceListRows(report: AbsenceReport): AbsenceListRow[] {
-  const out: AbsenceListRow[] = []
-  for (const category of [...ABSENCE_CATEGORIES, 'unchecked'] as const) {
-    for (const g of report.groups) {
-      for (const p of g[category]) {
-        out.push({ group: g.group.name, name: p.name, category, label: ABSENCE_KIND_LABEL[category], memo: p.memo })
-      }
-    }
-  }
-  return out
+/* ───────────── 목장심방 현황 표 (엑셀·Word·인쇄가 함께 쓴다) ───────────── */
+
+/** 기타(사유) 칸의 순서와 이름: 26년 '목장심방 현황' 엑셀과 같다 */
+export const VISIT_CATEGORIES: readonly AbsenceCategory[] = ['away', 'nocontact', 'other']
+
+export const VISIT_LABEL: Record<AbsenceCategory, string> = {
+  away: '타지역',
+  nocontact: '연락두절',
+  // 26년 목장심방 현황 양식 그대로 (목자가 사유를 적는 자리)
+  other: '기타 (사유적어주세요)',
+}
+
+/** 표 머리글: 목장 | 출석자 | 결석자 | 기타 (사유) | 총 원 | 총 출석 수 | 총 결석수 */
+export const VISIT_HEADERS = ['목장', '출석자', '결석자', '기타 (사유)', '총 원', '총 출석 수', '총 결석수'] as const
+
+/** 결석한 사람 (타지역 → 연락두절 → 기타 순) */
+export function visitAbsent(g: AbsenceGroup): AbsencePerson[] {
+  return VISIT_CATEGORIES.flatMap((c) => g[c])
+}
+
+/** 결석 인원 = 타지 + 연락두절 + 기타 (미확인은 빼요) */
+export function absentCount(c: Pick<Counts, 'away' | 'nocontact' | 'other'>): number {
+  return c.away + c.nocontact + c.other
+}
+
+/** 출석자·결석자 칸: 이름만 ', ' 로 (엑셀이 쉼표로 인원을 세요) */
+export function visitNames(list: AbsencePerson[]): string {
+  return list.map((p) => p.name).join(', ')
+}
+
+/** 기타(사유) 칸의 한 줄: { label: '타지역', text: '최지훈(안산), 정하나' } — 사람이 없는 구분은 빼요 */
+export function visitReasonParts(g: AbsenceGroup): { category: AbsenceCategory; label: string; people: AbsencePerson[]; text: string }[] {
+  // 양식처럼 결석자가 있으면 세 구분을 모두 적고(사람이 없는 구분은 이름 칸만 비워요), 결석자가 없으면 칸을 비워요
+  if (visitAbsent(g).length === 0) return []
+  return VISIT_CATEGORIES.map((c) => ({
+    category: c,
+    label: VISIT_LABEL[c],
+    people: g[c],
+    // 기타는 사람마다 사유가 길어서 ' / ' 로 나눠요 (26년 엑셀과 같이)
+    text: g[c].map(absencePersonText).join(c === 'other' ? ' / ' : ', '),
+  }))
+}
+
+/** 기타(사유) 칸 글: '*타지역 : …\n*연락두절 : …\n*기타 (사유적어주세요) : 이름(사유) / …' */
+export function visitReasonText(g: AbsenceGroup): string {
+  return visitReasonParts(g)
+    .map((p) => `*${p.label} : ${p.text}`)
+    .join('\n')
 }

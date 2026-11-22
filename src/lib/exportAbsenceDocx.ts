@@ -1,6 +1,6 @@
 /**
- * 결석 심방보고 Word(.docx) — 엑셀과 같은 표 (A4 가로)
- * 제목 · 목장 | 타지 | 기타(사유) | 연락두절 | 출석 · 합계, 미확인이 있으면 표 아래에 한 줄
+ * 목장심방 현황 Word(.docx) — 엑셀과 같은 표 (A4 가로)
+ * 제목 · 목장 | 출석자 | 결석자 | 기타 (사유) | 총 원 | 총 출석 수 | 총 결석수 · 합계, 미확인이 있으면 표 아래에 한 줄
  *
  * 이 파일은 화면에서 동적으로 불러온다 (docx 라이브러리가 커서 따로 나뉜다).
  */
@@ -21,26 +21,39 @@ import {
 } from 'docx'
 import { labelFull } from './dates'
 import {
-  ABSENCE_CATEGORIES,
-  ABSENCE_HEX,
-  ABSENCE_LABEL,
   absenceFileName,
-  presentOfTotal,
+  absentCount,
   serviceSplitText,
   uncheckedLine,
-  type AbsencePerson,
+  VISIT_HEADERS,
+  visitAbsent,
+  visitNames,
+  visitReasonParts,
+  type AbsenceGroup,
   type AbsenceReport,
 } from './report'
 import { A4, COLOR, FONT, MARGIN, shade } from './exportDocx'
 import { downloadBlob, MIME } from '../components/report/share'
 
-/** 목장 | 타지 | 기타(사유) | 연락두절 | 출석 (합계 15,700 twip ≒ A4 가로 본문 폭) */
-const COLS = [1500, 4300, 5300, 3500, 1100]
+/** 목장 | 출석자 | 결석자 | 기타 (사유) | 총 원 | 총 출석 수 | 총 결석수 (합계 15,700 twip ≒ A4 가로 본문 폭, 원본 엑셀 비율) */
+const COLS = [900, 3150, 2850, 5900, 800, 1050, 1050]
+
+/** 원본 엑셀 색: 머리글 파랑 바탕·흰 글자, 목장 칸 연노랑, 총 결석수 주황 글자 */
+const HEAD_FILL = '4472C4'
+const GROUP_FILL = 'FFFFC4'
+const ABSENT_TEXT = 'EB5800'
 
 type Align = (typeof AlignmentType)[keyof typeof AlignmentType]
 
-function run(text: string, o: { bold?: boolean; size?: number; color?: string } = {}): TextRun {
-  return new TextRun({ text, bold: o.bold, size: Math.round((o.size ?? 10) * 2), color: o.color, font: FONT })
+function run(text: string, o: { bold?: boolean; size?: number; color?: string; breakBefore?: boolean } = {}): TextRun {
+  return new TextRun({
+    text,
+    bold: o.bold,
+    size: Math.round((o.size ?? 10) * 2),
+    color: o.color,
+    font: FONT,
+    break: o.breakBefore ? 1 : undefined,
+  })
 }
 
 function cell(children: TextRun[], col: number, o: { fill?: string; align?: Align; colSpan?: number } = {}): TableCell {
@@ -55,37 +68,36 @@ function cell(children: TextRun[], col: number, o: { fill?: string; align?: Alig
   })
 }
 
-/** '최지훈(안산), 정하나' — 메모는 회색으로 */
-function peopleRuns(list: AbsencePerson[]): TextRun[] {
+/** 기타(사유) 칸: 구분마다 한 줄 ('*타지역 : …'), 사유는 회색 */
+function reasonRuns(g: AbsenceGroup): TextRun[] {
   const out: TextRun[] = []
-  list.forEach((p, i) => {
-    if (i > 0) out.push(run(', '))
-    out.push(run(p.name))
-    if (p.memo) out.push(run(`(${p.memo})`, { color: COLOR.muted }))
+  visitReasonParts(g).forEach((part, i) => {
+    out.push(run(`*${part.label} : `, { bold: true, breakBefore: i > 0 }))
+    const sep = part.category === 'other' ? ' / ' : ', '
+    part.people.forEach((p, j) => {
+      if (j > 0) out.push(run(sep))
+      out.push(run(p.name))
+      if (p.memo) out.push(run(`(${p.memo})`, { color: COLOR.muted }))
+    })
   })
   return out
 }
 
 function reportTable(report: AbsenceReport): Table {
   const rows: TableRow[] = []
-  const last = COLS.length - 1
 
   rows.push(
     new TableRow({
       tableHeader: true,
-      height: { value: 620, rule: HeightRule.ATLEAST },
-      children: [cell([run(report.title, { bold: true, size: 15 })], 0, { colSpan: COLS.length, fill: COLOR.title })],
+      height: { value: 760, rule: HeightRule.ATLEAST },
+      children: [cell([run(report.title, { bold: true, size: 18 })], 0, { colSpan: COLS.length })],
     }),
   )
   rows.push(
     new TableRow({
       tableHeader: true,
-      height: { value: 420, rule: HeightRule.ATLEAST },
-      children: [
-        cell([run('목장', { bold: true })], 0, { fill: COLOR.header }),
-        ...ABSENCE_CATEGORIES.map((c, i) => cell([run(ABSENCE_LABEL[c], { bold: true })], 1 + i, { fill: ABSENCE_HEX[c] })),
-        cell([run('출석', { bold: true })], last, { fill: COLOR.header }),
-      ],
+      height: { value: 400, rule: HeightRule.ATLEAST },
+      children: VISIT_HEADERS.map((h, i) => cell([run(h, { bold: true, color: 'FFFFFF' })], i, { fill: HEAD_FILL })),
     }),
   )
 
@@ -93,11 +105,15 @@ function reportTable(report: AbsenceReport): Table {
     rows.push(
       new TableRow({
         cantSplit: true,
-        height: { value: 480, rule: HeightRule.ATLEAST },
+        height: { value: 560, rule: HeightRule.ATLEAST },
         children: [
-          cell([run(g.group.name, { bold: true })], 0),
-          ...ABSENCE_CATEGORIES.map((c, i) => cell(peopleRuns(g[c]), 1 + i, { align: AlignmentType.LEFT })),
-          cell([run(presentOfTotal(g.summary), { size: 9, color: COLOR.muted })], last),
+          cell([run(g.group.name)], 0, { fill: GROUP_FILL }),
+          cell([run(visitNames(g.present))], 1, { align: AlignmentType.LEFT }),
+          cell([run(visitNames(visitAbsent(g)))], 2, { align: AlignmentType.LEFT }),
+          cell(reasonRuns(g), 3, { align: AlignmentType.LEFT }),
+          cell([run(String(g.summary.total), { bold: true })], 4),
+          cell([run(g.present.length ? String(g.present.length) : '', { bold: true })], 5),
+          cell([run(absentCount(g.summary) ? String(absentCount(g.summary)) : '', { bold: true, color: ABSENT_TEXT })], 6),
         ],
       }),
     )
@@ -110,11 +126,15 @@ function reportTable(report: AbsenceReport): Table {
   rows.push(
     new TableRow({
       cantSplit: true,
-      height: { value: 420, rule: HeightRule.ATLEAST },
+      height: { value: 400, rule: HeightRule.ATLEAST },
       children: [
-        cell([run('합계', { bold: true })], 0, { fill: COLOR.title }),
-        ...ABSENCE_CATEGORIES.map((c, i) => cell([run(`${t[c]}명`, { bold: true })], 1 + i, { fill: COLOR.title })),
-        cell([run(presentOfTotal(t), { bold: true, size: 9 })], last, { fill: COLOR.title }),
+        cell([run('합계', { bold: true })], 0),
+        cell([], 1),
+        cell([], 2),
+        cell([], 3),
+        cell([run(String(t.total), { bold: true })], 4),
+        cell([run(String(t.present), { bold: true })], 5),
+        cell([run(String(absentCount(t)), { bold: true })], 6),
       ],
     }),
   )
@@ -132,7 +152,9 @@ export async function buildAbsenceDocx(report: AbsenceReport): Promise<Blob> {
   const after: Paragraph[] = []
   const unchecked = uncheckedLine(report)
   if (unchecked) {
-    after.push(new Paragraph({ spacing: { before: 140 }, children: [run(`* 미확인 : ${unchecked}`, { size: 9, color: COLOR.muted })] }))
+    after.push(
+      new Paragraph({ spacing: { before: 140 }, children: [run(`* 미확인 (아직 체크 안 함) : ${unchecked}`, { size: 9, color: COLOR.muted })] }),
+    )
   }
   after.push(
     new Paragraph({

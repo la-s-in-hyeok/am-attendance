@@ -19,7 +19,7 @@ type Busy = 'xlsx' | 'docx' | null
 const onSheetEntry = () => (history.state as { amSheet?: number } | null)?.amSheet !== undefined
 
 /**
- * 결석 심방보고: 목장별로 타지 / 기타(사유) / 연락두절
+ * 목장심방 현황: 목장별로 출석자 / 결석자 / 기타(사유: 타지역·연락두절·기타)
  * - 엑셀·Word 받기, 인쇄(PDF) — 항상 전체 목장
  * - 목장 칸: 출석체크 완료했는지 한눈에. 누르면 그 목장 보고 (글 복사·공유, 체크하러 가기)
  * - 글 복사하기 — 전체 보고 글을 임원 단톡방에 붙여 넣기

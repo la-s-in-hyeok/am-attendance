@@ -174,6 +174,10 @@
    {
     "name": "고예강",
     "role": null
+   },
+   {
+    "name": "고요한",
+    "role": null
    }
   ]
  },
@@ -253,7 +257,7 @@
     "role": null
    },
    {
-    "name": "추대식",
+    "name": "나영서",
     "role": null
    },
    {
@@ -262,10 +266,6 @@
    },
    {
     "name": "김성원",
-    "role": null
-   },
-   {
-    "name": "나영서",
     "role": null
    }
   ]
@@ -489,7 +489,7 @@
     "role": "leader"
    },
    {
-    "name": "곽시은",
+    "name": "김하율",
     "role": "manager"
    },
    {
@@ -513,30 +513,6 @@
     "role": null
    },
    {
-    "name": "박하윤",
-    "role": null
-   },
-   {
-    "name": "유희재",
-    "role": null
-   },
-   {
-    "name": "장예원",
-    "role": null
-   },
-   {
-    "name": "김하율",
-    "role": null
-   },
-   {
-    "name": "문지현",
-    "role": null
-   },
-   {
-    "name": "송시은",
-    "role": null
-   },
-   {
     "name": "엄선빈",
     "role": null
    },
@@ -545,11 +521,19 @@
     "role": null
    },
    {
-    "name": "황새벽",
+    "name": "장예원",
     "role": null
    },
    {
     "name": "이예원",
+    "role": null
+   },
+   {
+    "name": "문지현",
+    "role": null
+   },
+   {
+    "name": "송시은",
     "role": null
    }
   ]
@@ -631,11 +615,11 @@
   "name": "부흥",
   "members": [
    {
-    "name": "김융학",
+    "name": "권시은",
     "role": "leader"
    },
    {
-    "name": "권시은",
+    "name": "김규리",
     "role": "manager"
    },
    {
@@ -679,7 +663,7 @@
     "role": null
    },
    {
-    "name": "박지환",
+    "name": "박지환A",
     "role": null
    },
    {
@@ -691,7 +675,7 @@
     "role": null
    },
    {
-    "name": "김규리",
+    "name": "김희정",
     "role": null
    },
    {
@@ -703,11 +687,11 @@
     "role": null
    },
    {
-    "name": "권동재",
+    "name": "최윤진",
     "role": null
    },
    {
-    "name": "지성현",
+    "name": "박근형",
     "role": null
    },
    {
@@ -753,13 +737,34 @@
    {
     "name": "이나은",
     "role": null
+   }
+  ]
+ },
+ {
+  "name": "참새가족",
+  "members": [
+   {
+    "name": "김융학",
+    "role": "leader"
    },
    {
-    "name": "김희정",
+    "name": "곽시은",
+    "role": "manager"
+   },
+   {
+    "name": "박하윤",
     "role": null
    },
    {
-    "name": "박근형",
+    "name": "유희재",
+    "role": null
+   },
+   {
+    "name": "권동재",
+    "role": null
+   },
+   {
+    "name": "지성현",
     "role": null
    },
    {
@@ -771,7 +776,7 @@
     "role": null
    },
    {
-    "name": "박성열",
+    "name": "전승우",
     "role": null
    },
    {
@@ -779,11 +784,43 @@
     "role": null
    },
    {
-    "name": "전승우",
+    "name": "박성열",
     "role": null
    },
    {
-    "name": "최윤진",
+    "name": "황새벽",
+    "role": null
+   },
+   {
+    "name": "황수찬",
+    "role": null
+   },
+   {
+    "name": "유성욱",
+    "role": null
+   },
+   {
+    "name": "전민석",
+    "role": null
+   },
+   {
+    "name": "허인범",
+    "role": null
+   },
+   {
+    "name": "이은성",
+    "role": null
+   },
+   {
+    "name": "안호영",
+    "role": null
+   },
+   {
+    "name": "장진규",
+    "role": null
+   },
+   {
+    "name": "추대식",
     "role": null
    }
   ]

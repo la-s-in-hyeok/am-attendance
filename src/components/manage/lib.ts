@@ -4,6 +4,7 @@ import { useStore } from '../../store'
 import { currentSunday, labelMD, todayKST } from '../../lib/dates'
 import { rosterChangeFrom } from '../../lib/roster'
 import type { ParsedGroup } from '../../lib/excelRoster'
+import type { RosterSyncPlan } from '../../lib/rosterSync'
 import type { Group } from '../../lib/types'
 import { newId } from '../../lib/id'
 
@@ -132,6 +133,33 @@ export async function importParsedRoster(
   // 'done' 이면 방금 넣은 명단을, 'exists' 이면 먼저 들어가 있던 명단을 받아 와서 보여 준다
   await refresh('roster')
   return { result, groups: groups.length, members: members.length }
+}
+
+/**
+ * 엑셀 명단과 똑같이 맞추기 (lib/rosterSync.ts 의 계획대로).
+ * 목장(새로·되살림·순서) → 목장원(한 번에) → 옮긴 사람의 적용 주일 뒤 기록 → 엑셀에 없는 목장 삭제 순서로 저장해요.
+ * 중간에 실패해도 다시 하면 남은 것만 바뀌어요. 끝나면 서버에서 다시 받아 와요.
+ */
+export async function applyRosterSync(plan: RosterSyncPlan): Promise<{ failedRecords: number }> {
+  const { backend, refresh } = useStore.getState()
+  let failedRecords = 0
+  try {
+    await backend.saveGroups(plan.groups)
+    await backend.saveMembers(plan.members)
+    // 기록 하나가 안 옮겨져도(완료한 목장 기록 등) 나머지는 계속 해요. 다시 하면 남은 것만 옮겨요
+    for (const r of plan.records) {
+      try {
+        await backend.saveAttendance(r)
+      } catch (e) {
+        console.error(e)
+        failedRecords++
+      }
+    }
+    await backend.saveGroups(plan.archive)
+  } finally {
+    await Promise.all([refresh('roster'), refresh('attendance')]).catch(() => undefined)
+  }
+  return { failedRecords }
 }
 
 /* ───────────── 백업 ───────────── */

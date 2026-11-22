@@ -8,7 +8,7 @@ import { dayStateLabel, StateIcon } from './StatusGrid'
 import { useCopyShare } from './useCopyShare'
 
 /**
- * 한 목장의 결석 심방보고 (바텀시트)
+ * 한 목장의 목장심방 현황 (바텀시트)
  * - 타지 / 기타(사유) / 연락두절 / 미확인 이름
  * - 이 목장 글만 복사·공유
  * - 미확인이 있으면 '체크하러 가기'

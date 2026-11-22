@@ -2,7 +2,7 @@ import type { Group, Member } from './types'
 import seed from './seed.json'
 import { newId } from './id'
 
-/** 체험 모드 첫 실행 때 넣어 두는 명단: 2026년 10월 11일 엑셀 출석부의 실제 목장·목장원 (체험판에만 들어가고, 서버 연결 배포판에는 빠진다) */
+/** 체험 모드 첫 실행 때 넣어 두는 명단: 2026년 11월 15일 엑셀 출석부의 실제 목장·목장원 (체험판에만 들어가고, 서버 연결 배포판에는 빠진다) */
 export const SEED_JOINED_ON = '2026-01-04'
 
 interface SeedGroup {

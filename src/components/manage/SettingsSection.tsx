@@ -6,11 +6,12 @@ import { Card, Confirm } from '../ui'
 import { HomeScreenHelpSheet } from './HomeScreenHelpSheet'
 import { PasscodeSheet } from './PasscodeSheet'
 import { ReportPinSheet } from './ReportPinSheet'
+import { RosterSyncSheet } from './RosterSyncSheet'
 import { ListCard, MenuRow, SectionTitle } from './parts'
 import { downloadBackup, resetDemoData } from './lib'
 import { useRosterSplit } from './useManage'
 
-type Open = null | 'pass' | 'reportPin' | 'help' | 'logout' | 'reset'
+type Open = null | 'sync' | 'pass' | 'reportPin' | 'help' | 'logout' | 'reset'
 
 /** 설정: 비밀번호, 목장보고서 담당 비밀번호, 백업, 홈 화면 추가, 로그아웃, 앱 정보 */
 export function SettingsSection() {
@@ -49,6 +50,12 @@ export function SettingsSection() {
       <div>
         <SectionTitle>설정</SectionTitle>
         <ListCard>
+          <MenuRow
+            icon="sheet"
+            title="엑셀 명단과 똑같이 맞추기"
+            sub="목장 개편·목장원 조정을 한 엑셀 출석부로 한 번에 바꿔요"
+            onClick={() => setOpen('sync')}
+          />
           <MenuRow icon="lock" title="비밀번호 바꾸기" sub="목자·총무가 함께 쓰는 비밀번호예요" onClick={() => setOpen('pass')} />
           <MenuRow
             icon="doc"
@@ -110,6 +117,7 @@ export function SettingsSection() {
         )}
       </div>
 
+      {open === 'sync' && <RosterSyncSheet onClose={() => setOpen(null)} />}
       {open === 'pass' && <PasscodeSheet onClose={() => setOpen(null)} />}
       {open === 'reportPin' && <ReportPinSheet onClose={() => setOpen(null)} />}
       {open === 'help' && <HomeScreenHelpSheet onClose={() => setOpen(null)} />}

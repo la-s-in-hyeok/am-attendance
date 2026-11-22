@@ -2,12 +2,12 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ISODate } from '../../lib/types'
 import { labelFull } from '../../lib/dates'
-import { fileStamp, serviceSplitText, type AbsenceReport, type SheetData } from '../../lib/report'
+import { absenceTitle, fileStamp, serviceSplitText, type AbsenceReport, type SheetData } from '../../lib/report'
 import { AbsencePrint } from './AbsencePrint'
 import { SheetTable } from './SheetTable'
 import { ServiceLegend } from './ServiceBits'
 
-/** 무엇을 인쇄할지: 전체 출석부 / 결석 심방보고 (둘 다 A4 가로) */
+/** 무엇을 인쇄할지: 전체 출석부 / 목장심방 현황 (둘 다 A4 가로) */
 export type PrintLayout = { kind: 'all' } | { kind: 'absence' }
 
 export interface PrintJob {
@@ -72,9 +72,9 @@ export function PrintView({
   )
 }
 
-/** 'AM청년회 출석부 2026.11.15', 'AM청년회 결석심방보고 2026.11.15' */
+/** 'AM청년회 출석부 2026.11.15', 'AM청년회 목장심방 현황 (26.11.15)' */
 function printTitle(layout: PrintLayout, date: ISODate): string {
-  return layout.kind === 'absence' ? `AM청년회 결석심방보고 ${fileStamp(date)}` : `AM청년회 출석부 ${fileStamp(date)}`
+  return layout.kind === 'absence' ? absenceTitle(date) : `AM청년회 출석부 ${fileStamp(date)}`
 }
 
 function AllSheet({ sheet, date }: { sheet: SheetData; date: ISODate }) {

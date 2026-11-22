@@ -1,77 +1,86 @@
 /**
- * 결석 심방보고 엑셀(.xlsx) — 26년 회장이 정리하던 모양 그대로 세 칸으로 나눈다
- * 시트 1 '결석 심방보고 (11.15)': 제목 · 목장 | 타지 | 기타(사유) | 연락두절 | 출석 · 합계 (A4 가로)
- *   칸마다 '이름(메모)'를 ', ' 로 이어 쓰고, 글이 길면 줄을 바꾼다
- * 시트 2 '명단형': 한 사람에 한 줄 (목장 | 이름 | 구분 | 사유·메모) — 필터로 골라 보기 좋게
+ * 목장심방 현황 엑셀(.xlsx) — 26년 'AM청년회 목장심방 현황' 엑셀과 같은 모양 (A4 가로, 시트 하나)
+ *   1줄: 제목 'AM청년회 목장심방 현황 (26.11.15)'
+ *   2줄: 목장 | 출석자 | 결석자 | 기타 (사유) | 총 원 | 총 출석 수 | 총 결석수
+ *   목장마다 한 줄, 맨 아래 합계. 미확인이 있으면 표 아래에 한 줄
+ * 총 출석 수·총 결석수는 원본처럼 '쉼표로 이름 세기' 수식이라, 이름을 고치면 숫자도 따라 바뀌어요.
  *
  * 이 파일은 화면에서 동적으로 불러온다 (exceljs 라이브러리가 커서 따로 나뉜다).
  */
 import type * as Excel from 'exceljs'
-import { labelDot } from './dates'
 import {
-  ABSENCE_CATEGORIES,
-  ABSENCE_HEX,
-  ABSENCE_LABEL,
-  absenceCellText,
   absenceFileName,
-  absenceListRows,
-  presentOfTotal,
+  absentCount,
   uncheckedLine,
-  type AbsenceCategory,
+  VISIT_HEADERS,
+  visitAbsent,
+  visitNames,
+  visitReasonText,
   type AbsenceReport,
 } from './report'
-import { BORDER, FILL, fillRange, loadExcel, put } from './exportXlsx'
+import { BORDER, loadExcel, put } from './exportXlsx'
 import { downloadBlob, MIME } from '../components/report/share'
 
-/** 열 너비: 목장 | 타지 | 기타(사유) | 연락두절 | 출석 */
-const COL_WIDTH = [12, 34, 42, 28, 10] as const
+/**
+ * 열 너비 (원본 엑셀과 같음): 목장 | 출석자 | 결석자 | 기타 (사유) | 총 원 | 총 출석 수 | 총 결석수
+ * (총 원은 원본 9 인데, exceljs 는 너비 9 를 '기본값'으로 보고 적지 않아서 9.1 로 둬요)
+ */
+const COL_WIDTH = [11, 41.3, 37.3, 76.1, 9.1, 12.4, 11.9] as const
 
-const CATEGORY_FILL: Record<AbsenceCategory, string> = {
-  away: `FF${ABSENCE_HEX.away}`,
-  other: `FF${ABSENCE_HEX.other}`,
-  nocontact: `FF${ABSENCE_HEX.nocontact}`,
-}
-
+/** 원본 색: 머리글 파랑 바탕·흰 글자, 목장 칸 연노랑, 총 결석수 주황 글자 */
+const HEAD_FILL = 'FF4472C4'
+const HEAD_TEXT = 'FFFFFFFF'
+const GROUP_FILL = 'FFFFFFC4'
+const ABSENT_TEXT = 'FFEB5800'
 const MUTED = 'FF555555'
 
 /** 엑셀 열 너비 단위로 본 글자 폭 (한글·한자 ≈ 1.9칸, 나머지 ≈ 1칸) */
 function textWidth(t: string): number {
   let w = 0
-  for (const ch of t) w += /[ᄀ-ᇿ㄰-㆏가-힯㐀-鿿豈-﫿！-｠]/.test(ch) ? 1.9 : 1
+  for (const ch of t) w += /[ᄀ-ᇿ㄰-㆏가-힯㐀-鿿豈-﫿！-｠]/.test(ch) ? 1.9 : 1
   return w
 }
 
-/** 칸 너비에 넣었을 때 몇 줄이 되는지 (쉼표 뒤에서 줄이 바뀐다고 보고 사람 단위로 채운다) */
+/** 칸 너비에 넣었을 때 몇 줄이 되는지 (줄바꿈은 그대로, 쉼표·빗금 뒤에서 줄이 바뀐다고 보고 채운다) */
 export function estimateLines(text: string, colWidth: number): number {
   if (!text) return 1
   const usable = Math.max(4, colWidth - 1.5)
-  let lines = 1
-  let cur = 0
-  for (const part of text.split(', ')) {
-    const w = textWidth(part)
-    const add = cur === 0 ? w : w + 2
-    if (cur > 0 && cur + add > usable) {
-      lines++
-      cur = w
-    } else {
-      cur += add
+  let total = 0
+  for (const para of text.split('\n')) {
+    let lines = 1
+    let cur = 0
+    for (const part of para.split(/(?<=[,/]) /)) {
+      const w = textWidth(part)
+      const add = cur === 0 ? w : w + 1
+      if (cur > 0 && cur + add > usable) {
+        lines++
+        cur = w
+      } else {
+        cur += add
+      }
+      // 한 사람 글이 칸보다 길면 그 안에서도 줄이 바뀐다
+      while (cur > usable) {
+        lines++
+        cur -= usable
+      }
     }
-    // 한 사람 글이 칸보다 길면 그 안에서도 줄이 바뀐다
-    while (cur > usable) {
-      lines++
-      cur -= usable
-    }
+    total += lines
   }
-  return lines
+  return total
 }
 
-/** 줄 수에 맞춘 행 높이 (pt): 10pt 글자 한 줄 ≈ 15pt */
+/** 줄 수에 맞춘 행 높이 (pt): 10pt 글자 한 줄 ≈ 14pt */
 function rowHeight(lines: number, min = 24): number {
-  return Math.max(min, lines * 15 + 8)
+  return Math.max(min, lines * 14 + 10)
+}
+
+/** 원본과 같은 '쉼표로 이름 세기' 수식 (비었으면 빈칸) */
+function countFormula(ref: string): string {
+  return `IF(${ref}="","",LEN(${ref})-LEN(SUBSTITUTE(${ref},",",""))+1)`
 }
 
 function buildReportSheet(wb: Excel.Workbook, report: AbsenceReport) {
-  const ws = wb.addWorksheet(`결석 심방보고 (${labelDot(report.date)})`, {
+  const ws = wb.addWorksheet(report.title.replace(/^AM청년회 목장심방 현황 \((.*)\)$/, '$1'), {
     pageSetup: {
       paperSize: 9, // A4
       orientation: 'landscape',
@@ -79,36 +88,39 @@ function buildReportSheet(wb: Excel.Workbook, report: AbsenceReport) {
       fitToWidth: 1,
       fitToHeight: 0,
       horizontalCentered: true,
-      margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+      margins: { left: 0.3, right: 0.3, top: 0.5, bottom: 0.4, header: 0.3, footer: 0.3 },
     },
-    views: [{ state: 'frozen', ySplit: 2, showGridLines: false }],
+    views: [{ state: 'frozen', ySplit: 2, showGridLines: false, zoomScale: 90 }],
   })
   ws.columns = COL_WIDTH.map((width) => ({ width }))
   const last = COL_WIDTH.length
 
-  // 제목 A1:E1
-  ws.getRow(1).height = 36
+  // 제목 A1:G1 (테두리·바탕 없이 크게)
+  ws.getRow(1).height = 50.25
   ws.mergeCells(1, 1, 1, last)
-  put(ws, 1, 1, report.title, { bold: true, size: 16, fill: FILL.title })
-  fillRange(ws, 1, 1, 1, last, FILL.title)
+  put(ws, 1, 1, report.title, { bold: true, size: 22 })
 
-  // 머리글: 목장 | 타지 | 기타(사유) | 연락두절 | 출석
-  ws.getRow(2).height = 24
-  put(ws, 2, 1, '목장', { bold: true, fill: FILL.header })
-  ABSENCE_CATEGORIES.forEach((c, i) => put(ws, 2, 2 + i, ABSENCE_LABEL[c], { bold: true, fill: CATEGORY_FILL[c] }))
-  put(ws, 2, last, '출석', { bold: true, fill: FILL.header })
+  // 머리글
+  ws.getRow(2).height = 19.5
+  VISIT_HEADERS.forEach((h, i) => put(ws, 2, i + 1, h, { bold: true, size: 11, fill: HEAD_FILL, color: HEAD_TEXT }))
 
   // 목장마다 한 줄
-  let r = 3
+  const first = 3
+  let r = first
   for (const g of report.groups) {
-    let lines = 1
-    put(ws, r, 1, g.group.name, { bold: true })
-    ABSENCE_CATEGORIES.forEach((c, i) => {
-      const text = absenceCellText(g[c])
-      put(ws, r, 2 + i, text, { align: 'left' })
-      lines = Math.max(lines, estimateLines(text, COL_WIDTH[1 + i]))
-    })
-    put(ws, r, last, presentOfTotal(g.summary), { size: 9, color: MUTED })
+    const present = visitNames(g.present)
+    const absent = visitNames(visitAbsent(g))
+    const reason = visitReasonText(g)
+    put(ws, r, 1, g.group.name, { fill: GROUP_FILL })
+    put(ws, r, 2, present, { align: 'left' })
+    put(ws, r, 3, absent, { align: 'left' })
+    put(ws, r, 4, reason, { align: 'left' })
+    put(ws, r, 5, g.summary.total, { bold: true })
+    put(ws, r, 6, null, { bold: true })
+    put(ws, r, 7, null, { bold: true, color: ABSENT_TEXT })
+    ws.getCell(r, 6).value = { formula: countFormula(`B${r}`), result: g.present.length || '' }
+    ws.getCell(r, 7).value = { formula: countFormula(`C${r}`), result: absentCount(g.summary) || '' }
+    const lines = Math.max(estimateLines(present, COL_WIDTH[1]), estimateLines(absent, COL_WIDTH[2]), estimateLines(reason, COL_WIDTH[3]))
     ws.getRow(r).height = rowHeight(lines)
     r++
   }
@@ -119,16 +131,22 @@ function buildReportSheet(wb: Excel.Workbook, report: AbsenceReport) {
     r++
   }
 
-  // 합계
+  // 합계 (원본처럼 SUM 수식)
   const t = report.totals
-  ws.getRow(r).height = 24
-  put(ws, r, 1, '합계', { bold: true, fill: FILL.title })
-  ABSENCE_CATEGORIES.forEach((c, i) => put(ws, r, 2 + i, `${t[c]}명`, { bold: true, fill: FILL.title }))
-  put(ws, r, last, presentOfTotal(t), { bold: true, size: 9, fill: FILL.title })
+  ws.getRow(r).height = 18
+  put(ws, r, 1, '합계', { bold: true })
+  for (let c = 2; c <= 4; c++) put(ws, r, c, null)
+  const sum = (col: string, result: number) => ({ formula: `SUM(${col}${first}:${col}${Math.max(first, r - 1)})`, result })
+  put(ws, r, 5, null, { bold: true })
+  put(ws, r, 6, null, { bold: true })
+  put(ws, r, 7, null, { bold: true })
+  ws.getCell(r, 5).value = sum('E', t.total)
+  ws.getCell(r, 6).value = sum('F', t.present)
+  ws.getCell(r, 7).value = sum('G', absentCount(t))
   const end = r
 
-  // 얇은 테두리
-  for (let y = 1; y <= end; y++) for (let x = 1; x <= last; x++) ws.getCell(y, x).border = BORDER
+  // 얇은 테두리 (제목 줄 빼고)
+  for (let y = 2; y <= end; y++) for (let x = 1; x <= last; x++) ws.getCell(y, x).border = BORDER
 
   // 미확인 (있을 때만, 한 줄 띄우고)
   let printEnd = end
@@ -137,52 +155,14 @@ function buildReportSheet(wb: Excel.Workbook, report: AbsenceReport) {
     const y = end + 2
     ws.getRow(end + 1).height = 6
     ws.mergeCells(y, 1, y, last)
-    const text = `* 미확인 : ${unchecked}`
+    const text = `* 미확인 (아직 체크 안 함) : ${unchecked}`
     put(ws, y, 1, text, { size: 9, align: 'left', color: MUTED })
     ws.getRow(y).height = rowHeight(estimateLines(text, COL_WIDTH.reduce((a, b) => a + b, 0)), 18)
     printEnd = y
   }
 
-  ws.pageSetup.printArea = `A1:E${printEnd}`
+  ws.pageSetup.printArea = `A1:G${printEnd}`
   ws.pageSetup.printTitlesRow = '1:2'
-}
-
-/** 명단형: 한 사람에 한 줄 (구분 순 → 목장 순) */
-function buildListSheet(wb: Excel.Workbook, report: AbsenceReport) {
-  const ws = wb.addWorksheet('명단형', {
-    pageSetup: {
-      paperSize: 9,
-      orientation: 'portrait',
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 },
-    },
-    views: [{ state: 'frozen', ySplit: 1, showGridLines: false }],
-  })
-  ws.columns = [{ width: 14 }, { width: 12 }, { width: 11 }, { width: 52 }]
-  const head = ['목장', '이름', '구분', '사유·메모']
-  ws.getRow(1).height = 22
-  head.forEach((h, i) => put(ws, 1, i + 1, h, { bold: true, fill: FILL.header }))
-
-  const rows = absenceListRows(report)
-  let r = 2
-  if (rows.length === 0) {
-    ws.mergeCells(r, 1, r, 4)
-    put(ws, r, 1, '이번 주는 결석자가 없어요')
-    r++
-  }
-  for (const a of rows) {
-    const fill = a.category === 'unchecked' ? undefined : CATEGORY_FILL[a.category]
-    put(ws, r, 1, a.group)
-    put(ws, r, 2, a.name)
-    put(ws, r, 3, a.label, { fill })
-    put(ws, r, 4, a.memo, { align: 'left' })
-    ws.getRow(r).height = rowHeight(estimateLines(a.memo, 52), 20)
-    r++
-  }
-  for (let y = 1; y < r; y++) for (let x = 1; x <= 4; x++) ws.getCell(y, x).border = BORDER
-  if (rows.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: r - 1, column: 4 } }
 }
 
 export async function buildAbsenceXlsx(report: AbsenceReport): Promise<Blob> {
@@ -191,7 +171,6 @@ export async function buildAbsenceXlsx(report: AbsenceReport): Promise<Blob> {
   wb.creator = 'AM청년회 출석부'
   wb.created = new Date()
   buildReportSheet(wb, report)
-  buildListSheet(wb, report)
   const buf = await wb.xlsx.writeBuffer()
   return new Blob([buf], { type: MIME.xlsx })
 }

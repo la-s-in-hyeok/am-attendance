@@ -1,5 +1,6 @@
 import type { AttendanceRecord, Group, ISODate, Member, Service, Status, WeekNote } from './types'
 import { currentSunday, monthKey, monthRange, sundaysBetween } from './dates'
+import { barnabasCount, barnabasNameKeys, nameKey, parseBarnabas } from './barnabas'
 
 /** 그 주일 출석부에 들어가는 사람인가 */
 export function isOnRoster(m: Member, date: ISODate): boolean {
@@ -122,17 +123,34 @@ export function buildWeek(
 }
 
 export interface WeekTotals extends Counts {
+  /** 새신자 명단 인원 (바나바 명단과 겹치는 사람 포함) */
   newcomers: number
+  /** 바나바 명단에 없는 새신자 (총 출석에는 이 수만 더한다. 겹치는 사람은 바나바에서 센다) */
+  newcomersOnly: number
   visitors: number
-  /** 목장원 출석 + 새신자 + 방문 (엑셀의 맨 아래 노란 칸) */
+  /** 바나바 명단 인원 (명단에 있는 사람은 모두 그 주에 온 사람) */
+  barnabas: number
+  /** 목장원 출석 + 새신자(바나바와 겹치지 않는) + 방문 + 바나바 (엑셀의 맨 아래 노란 칸) */
   grandTotal: number
 }
 
 export function weekTotals(week: GroupWeek[], note: WeekNote | undefined): WeekTotals {
   const c = week.reduce((acc, g) => addCounts(acc, g.summary), emptyCounts())
-  const newcomers = note?.newcomers.filter((n) => n.name.trim()).length ?? 0
+  const newcomerList = note?.newcomers.filter((n) => n.name.trim()) ?? []
   const visitors = note?.visitors.filter((n) => n.name.trim()).length ?? 0
-  return { ...c, newcomers, visitors, grandTotal: c.present + newcomers + visitors }
+  const b = parseBarnabas(note?.barnabas)
+  const barnabas = barnabasCount(b)
+  // 등록한 주에는 새신자와 바나바 명단에 같이 적히기도 해요: 그 사람은 한 번만 센다
+  const inBarnabas = barnabasNameKeys(b)
+  const newcomersOnly = newcomerList.filter((n) => !inBarnabas.has(nameKey(n.name))).length
+  return {
+    ...c,
+    newcomers: newcomerList.length,
+    newcomersOnly,
+    visitors,
+    barnabas,
+    grandTotal: c.present + newcomersOnly + visitors + barnabas,
+  }
 }
 
 /** 출석률 (0~1). 총원이 0이면 null */

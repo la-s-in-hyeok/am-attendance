@@ -139,6 +139,28 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 출석부 이름 칸: 줄을 바꾸지 않고, 칸이 좁으면 글자를 줄여 한 줄로 ('박지환A' 처럼 같은 이름 표시가 붙은 이름)
+ * - .sheet-name-box = 칸 폭을 재는 상자, .sheet-name = 이름
+ * - --name-em: 이름 글자 폭 (lib/report.ts nameWidthEm), --name-base: 기본 글자 크기,
+ *   --name-min-box: 칸 폭을 잴 수 없는 옛 브라우저에서 쓰는 가장 좁은 칸 폭
+ */
+.sheet-name-box {
+  container-type: inline-size;
+}
+.sheet-name {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: min(var(--name-base), calc(100cqi / var(--name-em)));
+}
+/* 칸 폭(cqi)을 모르는 옛 브라우저: 가장 좁은 칸 폭으로 계산 */
+@supports not (width: 1cqi) {
+  .sheet-name {
+    font-size: min(var(--name-base), calc(var(--name-min-box) / var(--name-em)));
+  }
+}
+
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }

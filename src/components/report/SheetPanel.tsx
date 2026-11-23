@@ -6,7 +6,7 @@ import { useStore } from '../../store'
 import { Card } from '../ui'
 import { ActionTile } from './ActionTile'
 import { SheetTable } from './SheetTable'
-import { ServiceCounts, ServiceLegend } from './ServiceBits'
+import { ServiceLegend } from './ServiceBits'
 import type { PrintLayout } from './PrintView'
 
 type Busy = 'docx' | 'xlsx' | null
@@ -68,12 +68,10 @@ export function SheetPanel({
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 px-5 pt-5 pb-3">
           <h2 className="text-[17px] font-extrabold tracking-tight">{sheet.title}</h2>
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-            <p className="tabular text-[13px] text-ink-3">
-              목장원 {sheet.memberPresent}/{sheet.memberTotal}명 · 총 출석 <b className="text-ink">{sheet.grandTotal}명</b>
-            </p>
-            <ServiceCounts service1={sheet.memberService1} service2={sheet.memberService2} unit="명" />
-          </div>
+          {/* 출석부에는 숫자만: 1부·2부 인원은 나누지 않는다 (이름 칸 색으로 구분) */}
+          <p className="tabular text-[13px] text-ink-3">
+            목장원 {sheet.memberPresent}/{sheet.memberTotal}명 · 총 출석 <b className="text-ink">{sheet.grandTotal}명</b>
+          </p>
         </div>
         {/*
           표만 옆으로 민다.

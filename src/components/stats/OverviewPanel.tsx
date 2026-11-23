@@ -67,6 +67,7 @@ export function OverviewPanel({
       sundayCount: sundaysInMonthSoFar(month, cur),
       newcomers: nc.newcomers,
       visitors: nc.visitors,
+      barnabas: nc.barnabas,
     }
   }, [notes, month, points, sel, prev, cur])
 
@@ -87,7 +88,8 @@ export function OverviewPanel({
           )}
         </div>
         <p className="tabular text-[13px] text-ink-3">
-          새신자 <b className="font-bold text-ink-2">{kpi.newcomers}</b> · 방문 <b className="font-bold text-ink-2">{kpi.visitors}</b>
+          새신자 <b className="font-bold text-ink-2">{kpi.newcomers}</b> · 방문 <b className="font-bold text-ink-2">{kpi.visitors}</b> · 바나바{' '}
+          <b className="font-bold text-ink-2">{kpi.barnabas}</b>
         </p>
       </div>
       <KpiTiles kpi={kpi} />

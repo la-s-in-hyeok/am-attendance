@@ -4,7 +4,7 @@ import { SERVICE_COLOR_NAME, SERVICES } from '../../lib/report'
 import { SERVICE_STYLE } from '../ui'
 import { SERVICE_FILL, type SheetVariant } from './serviceStyle'
 
-/** 예배 색 네모 (범례·숫자 앞에 붙인다) */
+/** 예배 색 네모 (범례에 붙인다) */
 export function ServiceSwatch({
   service,
   variant = 'screen',

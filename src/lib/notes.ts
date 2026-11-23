@@ -1,4 +1,5 @@
 import type { NamedNote, WeekNote } from './types'
+import { normalizeBarnabas } from './barnabas'
 
 type NoteBody = Omit<WeekNote, 'updatedAt'>
 
@@ -60,7 +61,11 @@ export function mergeRows(base: NamedNote[], mine: NamedNote[], theirs: NamedNot
   return out
 }
 
-/** 주간 기타 기록 3자 합치기. 글 칸(바나바·메모)은 내가 고쳤으면 내 것, 아니면 서버 것 */
+/**
+ * 주간 기타 기록 3자 합치기. 글 칸(바나바·메모)은 내가 고쳤으면 내 것, 아니면 서버 것
+ * - 바나바는 명단 전체가 한 칸이다. 예전 글과 그것을 읽은 명단(JSON)은 같은 내용으로 보고 비교한다
+ *   (예전 글을 열기만 하고 다른 칸을 고쳐 저장해도 '바나바를 고쳤다'로 보지 않게)
+ */
 export function mergeWeekNote(base: WeekNote | null, mine: NoteBody, theirs: WeekNote | undefined): NoteBody {
   if (!theirs) return mine
   const b: NoteBody = base ?? { date: mine.date, newcomers: [], visitors: [], barnabas: '', memo: '' }
@@ -68,7 +73,7 @@ export function mergeWeekNote(base: WeekNote | null, mine: NoteBody, theirs: Wee
     date: mine.date,
     newcomers: mergeRows(b.newcomers, mine.newcomers, theirs.newcomers),
     visitors: mergeRows(b.visitors, mine.visitors, theirs.visitors),
-    barnabas: mine.barnabas !== b.barnabas ? mine.barnabas : theirs.barnabas,
+    barnabas: normalizeBarnabas(mine.barnabas) !== normalizeBarnabas(b.barnabas) ? mine.barnabas : theirs.barnabas,
     memo: mine.memo !== b.memo ? mine.memo : theirs.memo,
   }
 }

@@ -1,6 +1,7 @@
 import type { AttendanceRecord, Group, ISODate, Member, NamedNote, WeekNote } from '../../lib/types'
 import { buildWeek, isOnRoster, rate, recKey, serviceOf, weekTotals, type MonthStat, type WeekTotals } from '../../lib/compute'
 import { addDays, currentSunday, monthKey, monthRange, sundaysBetween } from '../../lib/dates'
+import { nameKey, parseBarnabas } from '../../lib/barnabas'
 
 /* 통계 탭에서만 쓰는 계산 모음. 출석률의 정의는 lib/compute.ts 를 그대로 따른다. */
 
@@ -38,7 +39,7 @@ export interface WeekPoint {
   rate: number | null
 }
 
-/** 주일별 합계 (목장원 출석 + 새신자 + 방문) */
+/** 주일별 합계 (목장원 출석 + 새신자 + 방문 + 바나바) */
 export function weekPoints(
   groups: Group[],
   members: Member[],
@@ -58,13 +59,16 @@ function uniqueNames(list: NamedNote[][]): number {
   return set.size
 }
 
-/** 그 달에 적힌 새신자·방문 (같은 사람이 여러 주 적혀도 한 번만 센다) */
-export function monthNoteCounts(notes: Record<ISODate, WeekNote>, ym: string): { newcomers: number; visitors: number } {
+/** 그 달에 적힌 새신자·방문·바나바 (같은 사람이 여러 주 적혀도 한 번만 센다) */
+export function monthNoteCounts(notes: Record<ISODate, WeekNote>, ym: string): { newcomers: number; visitors: number; barnabas: number } {
   const { from, to } = monthRange(ym)
   const inMonth = Object.values(notes).filter((n) => n.date >= from && n.date <= to)
+  const barnabas = new Set<string>()
+  for (const n of inMonth) for (const p of parseBarnabas(n.barnabas).people) barnabas.add(nameKey(p.name))
   return {
     newcomers: uniqueNames(inMonth.map((n) => n.newcomers)),
     visitors: uniqueNames(inMonth.map((n) => n.visitors)),
+    barnabas: barnabas.size,
   }
 }
 

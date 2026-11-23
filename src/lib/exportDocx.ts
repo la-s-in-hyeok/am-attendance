@@ -28,16 +28,17 @@ import { labelFull } from './dates'
 import {
   buildSheet,
   extraReportLines,
+  fitNameSize,
+  GRAND_TOTAL_LABEL,
+  GRAND_TOTAL_NOTE,
   groupReport,
   groupReportLines,
   reportFileName,
   SERVICE_COLOR_NAME,
   SERVICE_HEX,
   SERVICES,
-  serviceSplitText,
   summaryLines,
   type ReportLine,
-  type SheetBlock,
   type SheetCell,
   type SheetData,
 } from './report'
@@ -90,52 +91,38 @@ interface CellOpts extends TextOpts {
   colSpan?: number
   rowSpan?: number
   fill?: string
-  /** 첫 문단 아래에 더 붙일 문단 (예: 출석 칸의 1부·2부) */
-  extra?: Paragraph[]
 }
+
+/** 칸 안쪽 좌우 여백 (twip) */
+const CELL_PAD = 40
 
 function cell(text: string, o: CellOpts): TableCell {
   const span = o.colSpan ?? 1
   return new TableCell({
-    children: [para(text, o), ...(o.extra ?? [])],
+    children: [para(text, o)],
     columnSpan: span > 1 ? span : undefined,
     rowSpan: o.rowSpan && o.rowSpan > 1 ? o.rowSpan : undefined,
     width: { size: spanWidth(o.col, span), type: WidthType.DXA },
     verticalAlign: VerticalAlignTable.CENTER,
     shading: o.fill ? shade(o.fill) : undefined,
-    margins: { top: 30, bottom: 30, left: 40, right: 40 },
+    margins: { top: 30, bottom: 30, left: CELL_PAD, right: CELL_PAD },
   })
 }
 
-function nameCell(c: SheetCell | null, col: number): TableCell {
-  if (!c) return cell('', { col })
-  return cell(c.name, { col, fill: c.status === 'present' ? SERVICE_FILL[c.service ?? 1] : undefined, size: 9 })
+/** 이름 글자 크기 (pt): 기본 9pt, 칸보다 길면 한 줄에 들어가게 줄인다 (0.5pt 단위, 가장 작게 5pt) */
+function nameSize(name: string, col: number): number {
+  // 칸 폭 (twip → pt) − 좌우 여백, 글꼴 차이를 생각해 8% 여유
+  const width = ((COLS[col] - CELL_PAD * 2) / 20) * 0.92
+  return Math.max(5, Math.floor(fitNameSize(name, width, 9) * 2) / 2)
 }
 
-/** 예배 색 네모 + 글 (예: '■ 1부 7') — 네모는 음영 넣은 빈칸 */
-function swatchRuns(s: Service, text: string, size: number): TextRun[] {
-  return [
-    new TextRun({ text: '\u00A0\u00A0', shading: shade(SERVICE_FILL[s]), size: Math.round(size * 2), font: FONT }),
-    new TextRun({ text: `\u00A0${text}`, size: Math.round(size * 2), font: FONT, color: COLOR.muted }),
-  ]
+/** 이름 칸 (rowSpan: 목자·총무 칸처럼 세로로 합친 줄 수) */
+function nameCell(c: SheetCell | null, col: number, rowSpan = 1): TableCell {
+  if (!c) return cell('', { col, rowSpan })
+  return cell(c.name, { col, rowSpan, fill: c.status === 'present' ? SERVICE_FILL[c.service ?? 1] : undefined, size: nameSize(c.name, col) })
 }
 
-/** 출석 칸: 합계 아래에 작게 '1부 7' / '2부 5' */
-function presentCell(block: SheetBlock, rowSpan: number): TableCell {
-  const extra =
-    block.present > 0
-      ? SERVICES.map(
-          (s) =>
-            new Paragraph({
-              alignment: AlignmentType.CENTER,
-              children: swatchRuns(s, `${SERVICE_LABEL[s]} ${s === 1 ? block.service1 : block.service2}`, 6.5),
-            }),
-        )
-      : []
-  return cell(String(block.present), { col: 13, rowSpan, bold: true, size: 10, extra })
-}
-
-/** 범례 줄: [1부 예배] [2부 예배]  노랑: 1부 예배 / 민트: 2부 예배 · 목장원 30/40명 출석 (1부 18명 · 2부 12명) */
+/** 범례 줄: [1부 예배] [2부 예배]  노랑: 1부 예배 / 민트: 2부 예배 · 목장원 30/40명 출석 (출석부에는 1부·2부 인원을 나누지 않는다) */
 function legendParagraph(sheet: SheetData): Paragraph {
   const size = 17
   const children: TextRun[] = []
@@ -146,10 +133,9 @@ function legendParagraph(sheet: SheetData): Paragraph {
     )
   }
   const legend = SERVICES.map((s) => `${SERVICE_COLOR_NAME[s]}: ${SERVICE_LABEL[s]} 예배`).join(' / ')
-  const split = serviceSplitText({ service1: sheet.memberService1, service2: sheet.memberService2 }, '명')
   children.push(
     new TextRun({
-      text: `${legend}   ·   목장원 ${sheet.memberPresent}/${sheet.memberTotal}명 출석 (${split})`,
+      text: `${legend}   ·   목장원 ${sheet.memberPresent}/${sheet.memberTotal}명 출석`,
       size,
       font: FONT,
       color: COLOR.muted,
@@ -185,17 +171,19 @@ function sheetTable(sheet: SheetData): Table {
     }),
   )
 
-  // 목장별 (목장명·총원·출석은 세로로 병합)
+  // 목장별 (목장명·총원·출석은 세로로 병합, 목자·총무는 늘 두 칸)
   for (const block of sheet.blocks) {
     const n = block.rows.length
     block.rows.forEach((row, i) => {
       const children: TableCell[] = []
       if (i === 0) children.push(cell(block.group.name, { col: 0, rowSpan: n, bold: true, size: 10 }))
-      children.push(nameCell(row.lead, 1))
+      // 위 칸이 이 줄까지 내려와 있으면 넣지 않는다 (Table 이 이어진 칸을 채운다)
+      if (row.lead) children.push(nameCell(row.lead.cell, 1, row.lead.span))
       row.cells.forEach((c, k) => children.push(nameCell(c, 2 + k)))
       if (i === 0) {
         children.push(cell(String(block.total), { col: 12, rowSpan: n, size: 10 }))
-        children.push(presentCell(block, n))
+        // 출석 칸은 숫자만 (1부·2부는 이름 칸 색으로 구분)
+        children.push(cell(String(block.present), { col: 13, rowSpan: n, bold: true, size: 10 }))
       }
       // 한 목장이 두 쪽으로 갈라지지 않게
       rows.push(new TableRow({ children, height: rowHeight, cantSplit: true, keepNext: i < n - 1 }))
@@ -210,7 +198,7 @@ function sheetTable(sheet: SheetData): Table {
         cantSplit: true,
         children: [
           cell(f.text ? `${f.label} : ${f.text}` : `${f.label} :`, { col: 0, colSpan: 13, align: AlignmentType.LEFT, size: 9 }),
-          cell(f.count === null ? '' : String(f.count), { col: 13, bold: true, size: 10 }),
+          cell(String(f.count), { col: 13, bold: true, size: 10 }),
         ],
       }),
     )
@@ -222,7 +210,7 @@ function sheetTable(sheet: SheetData): Table {
       height: { value: 420, rule: HeightRule.ATLEAST },
       cantSplit: true,
       children: [
-        cell('총 출석 (목장원 + 새신자 + 방문)', { col: 0, colSpan: 12, bold: true, size: 10, align: AlignmentType.RIGHT }),
+        cell(`${GRAND_TOTAL_LABEL} ${GRAND_TOTAL_NOTE}`, { col: 0, colSpan: 12, bold: true, size: 10, align: AlignmentType.RIGHT }),
         cell(String(sheet.memberTotal), { col: 12, bold: true, size: 10 }),
         cell(String(sheet.grandTotal), { col: 13, fill: COLOR.grand, bold: true, size: 11 }),
       ],

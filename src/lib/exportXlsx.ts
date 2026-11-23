@@ -16,11 +16,12 @@ import {
   absenceRows,
   attendeeRows,
   buildSheet,
+  GRAND_TOTAL_LABEL,
+  GRAND_TOTAL_NOTE,
   reportFileName,
   SERVICE_COLOR_NAME,
   SERVICE_HEX,
   SERVICES,
-  serviceSplitText,
   type SheetCell,
   type SheetData,
 } from './report'
@@ -68,8 +69,10 @@ export function put(ws: Excel.Worksheet, row: number, col: number, value: string
   if (s.fill) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: s.fill } }
 }
 
+/** 이름 칸: 줄을 바꾸지 않고, 칸보다 길면 엑셀이 글자를 줄여 한 줄로 ('박지환A' 처럼 같은 이름 표시가 붙은 이름) */
 function putName(ws: Excel.Worksheet, row: number, col: number, c: SheetCell | null) {
   put(ws, row, col, c?.name ?? null, { fill: c?.status === 'present' ? SERVICE_FILL[c.service ?? 1] : undefined })
+  ws.getCell(row, col).alignment = { horizontal: 'center', vertical: 'middle', wrapText: false, shrinkToFit: true }
 }
 
 /** 병합 범위 안 모든 칸에 같은 배경 (병합된 칸 테두리·배경이 끊기지 않게) */
@@ -125,7 +128,14 @@ function buildAttendanceSheet(wb: Excel.Workbook, sheet: SheetData) {
     const top = r
     block.rows.forEach((row, i) => {
       ws.getRow(r + i).height = 20
-      putName(ws, r + i, 2, row.lead)
+      // B열은 늘 두 칸 (목자 / 총무): 줄이 3줄 이상이면 세로로 합친다
+      const lead = row.lead
+      if (lead) {
+        const bottom = r + i + lead.span - 1
+        if (lead.span > 1) ws.mergeCells(r + i, 2, bottom, 2)
+        putName(ws, r + i, 2, lead.cell)
+        if (lead.span > 1 && lead.cell?.status === 'present') fillRange(ws, r + i, 2, bottom, 2, SERVICE_FILL[lead.cell.service ?? 1])
+      }
       row.cells.forEach((c, k) => putName(ws, r + i, 3 + k, c))
     })
     ws.mergeCells(top, 1, top + n - 1, 1)
@@ -139,9 +149,12 @@ function buildAttendanceSheet(wb: Excel.Workbook, sheet: SheetData) {
 
   // 새신자 / 방문 / 바나바
   for (const f of sheet.footer) {
-    ws.getRow(r).height = 22
+    const line = f.text ? `${f.label} : ${f.text}` : `${f.label} :`
+    // 글이 길면(바나바 명단 등) 줄이 바뀌므로 줄 수만큼 높인다 (A~M 병합 칸에 한글 약 60자)
+    const lines = line.split('\n').reduce((n, part) => n + Math.max(1, Math.ceil(part.length / 60)), 0)
+    ws.getRow(r).height = Math.min(409, 22 * lines)
     ws.mergeCells(r, 1, r, 13)
-    put(ws, r, 1, f.text ? `${f.label} : ${f.text}` : `${f.label} :`, { align: 'left' })
+    put(ws, r, 1, line, { align: 'left' })
     put(ws, r, 14, f.count, { bold: true })
     r++
   }
@@ -149,7 +162,7 @@ function buildAttendanceSheet(wb: Excel.Workbook, sheet: SheetData) {
   // 총 출석
   ws.getRow(r).height = 24
   ws.mergeCells(r, 1, r, 12)
-  put(ws, r, 1, '총 출석 (목장원 + 새신자 + 방문)', { bold: true, align: 'right' })
+  put(ws, r, 1, `${GRAND_TOTAL_LABEL} ${GRAND_TOTAL_NOTE}`, { bold: true, align: 'right' })
   put(ws, r, 13, sheet.memberTotal, { bold: true })
   put(ws, r, 14, sheet.grandTotal, { bold: true, size: 12, fill: FILL.grand })
   const last = r
@@ -157,7 +170,8 @@ function buildAttendanceSheet(wb: Excel.Workbook, sheet: SheetData) {
   // 얇은 테두리
   for (let y = 2; y <= last; y++) for (let x = 1; x <= 14; x++) ws.getCell(y, x).border = BORDER
 
-  // 범례 (한 줄 띄우고): 범례 | [1부 예배] | [2부 예배] | 노랑: 1부 예배 / 민트: 2부 예배 · 목장원 출석 …
+  // 범례 (한 줄 띄우고): 범례 | [1부 예배] | [2부 예배] | 노랑: 1부 예배 / 민트: 2부 예배 · 목장원 30/40명 출석
+  // (출석부에는 숫자만: 1부·2부 인원은 나누지 않는다)
   ws.getRow(last + 1).height = 6
   const L = last + 2
   ws.getRow(L).height = 20
@@ -165,8 +179,7 @@ function buildAttendanceSheet(wb: Excel.Workbook, sheet: SheetData) {
   SERVICES.forEach((s, i) => put(ws, L, 2 + i, `${SERVICE_LABEL[s]} 예배`, { bold: true, size: 9, fill: SERVICE_FILL[s] }))
   for (let x = 1; x <= 3; x++) ws.getCell(L, x).border = BORDER
   ws.mergeCells(L, 4, L, 14)
-  const split = serviceSplitText({ service1: sheet.memberService1, service2: sheet.memberService2 }, '명', ' + ')
-  put(ws, L, 4, `${LEGEND_TEXT}   ·   목장원 출석 ${sheet.memberPresent}명 = ${split}`, { size: 9, align: 'left' })
+  put(ws, L, 4, `${LEGEND_TEXT}   ·   목장원 ${sheet.memberPresent}/${sheet.memberTotal}명 출석`, { size: 9, align: 'left' })
 
   ws.pageSetup.printArea = `A1:N${L}`
 }

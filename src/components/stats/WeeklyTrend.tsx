@@ -23,7 +23,8 @@ export function WeeklyTrend({ points, onOpen }: { points: WeekPoint[]; onOpen: (
       <ul className="divide-y divide-line">
         {points.map((p) => {
           const t = p.totals
-          const extra = t.newcomers + t.visitors
+          // 목장원 밖에서 온 사람 (새신자 + 방문 + 바나바, 새신자·바나바에 같이 적힌 사람은 한 번만)
+          const extra = t.grandTotal - t.present
           return (
             <li key={p.date}>
               <button
@@ -39,7 +40,7 @@ export function WeeklyTrend({ points, onOpen }: { points: WeekPoint[]; onOpen: (
                       목장원 <b className="font-semibold text-ink-2">{t.present}</b>/{t.total}
                       {extra > 0 && (
                         <>
-                          {' · '}새신자·방문 <b className="font-semibold text-ink-2">{extra}</b>
+                          {' · '}새신자·방문·바나바 <b className="font-semibold text-ink-2">{extra}</b>
                         </>
                       )}
                     </span>

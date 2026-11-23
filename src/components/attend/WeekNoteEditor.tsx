@@ -2,6 +2,18 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEv
 import type { ISODate, NamedNote, WeekNote } from '../../lib/types'
 import { useStore } from '../../store'
 import { countRows, noteRowKey } from '../../lib/notes'
+import { addDays, labelMD } from '../../lib/dates'
+import {
+  barnabasEntryText,
+  clampPerson,
+  MAX_WEEKS,
+  nameKey,
+  nextWeekPeople,
+  normalizeBarnabas,
+  parseBarnabas,
+  stringifyBarnabas,
+  type BarnabasPerson,
+} from '../../lib/barnabas'
 import { Icon, TextArea } from '../ui'
 
 /* ───────────── 초안(입력 중인 내용) ───────────── */
@@ -13,10 +25,18 @@ interface Row {
   note: string
 }
 
+/** 바나바 명단 한 줄 (이름 · 출석 N주 · 바나바 M주) */
+interface BarnabasRow extends BarnabasPerson {
+  /** 화면용 키 (저장하지 않음) */
+  k: string
+}
+
 interface Draft {
   newcomers: Row[]
   visitors: Row[]
-  barnabas: string
+  barnabas: BarnabasRow[]
+  /** 명단으로 바꾸지 못한 예전 바나바 글 (읽기만. 지우기 전까지 그대로 저장·출력한다) */
+  barnabasLegacy: string
   memo: string
 }
 
@@ -25,13 +45,25 @@ type NoteContent = Pick<WeekNote, 'newcomers' | 'visitors' | 'barnabas' | 'memo'
 let seq = 0
 const rowKey = () => `row-${++seq}`
 
+/** 저장된 바나바 글 → 입력 줄 (keys 를 주면 같은 자리의 화면 키를 그대로 써서 입력칸이 새로 그려지지 않게) */
+function toBarnabasRows(people: BarnabasPerson[], keys: string[] = []): BarnabasRow[] {
+  return people.map((p, i) => ({ k: keys[i] ?? rowKey(), name: p.name, attend: p.attend, barnabas: p.barnabas }))
+}
+
 function toDraft(n: WeekNote | undefined): Draft {
+  const b = parseBarnabas(n?.barnabas)
   return {
     newcomers: (n?.newcomers ?? []).map((x) => ({ k: rowKey(), name: x.name, note: x.note })),
     visitors: (n?.visitors ?? []).map((x) => ({ k: rowKey(), name: x.name, note: x.note })),
-    barnabas: n?.barnabas ?? '',
+    barnabas: toBarnabasRows(b.people),
+    barnabasLegacy: b.legacy,
     memo: n?.memo ?? '',
   }
+}
+
+/** 입력 중인 바나바 명단을 저장할 글로 (이름이 빈 줄은 뺀다) */
+function barnabasStore(d: Pick<Draft, 'barnabas' | 'barnabasLegacy'>): string {
+  return stringifyBarnabas({ people: d.barnabas, legacy: d.barnabasLegacy })
 }
 
 /**
@@ -79,26 +111,45 @@ function withRemoteRows(cur: Draft, sent: NoteContent, merged: WeekNote): Draft 
   }
   const newcomers = fix('newcomers')
   const visitors = fix('visitors')
-  const barnabas = merged.barnabas !== sent.barnabas && cur.barnabas.trim() === sent.barnabas ? merged.barnabas : cur.barnabas
+  // 바나바는 명단 전체가 한 칸: 다른 기기에서 바뀌었고 내가 그사이 손대지 않았으면 서버 명단으로
+  const mergedB = normalizeBarnabas(merged.barnabas)
+  let barnabas = cur.barnabas
+  let barnabasLegacy = cur.barnabasLegacy
+  if (mergedB !== sent.barnabas && barnabasStore(cur) === sent.barnabas) {
+    const b = parseBarnabas(mergedB)
+    barnabas = toBarnabasRows(
+      b.people,
+      cur.barnabas.map((r) => r.k),
+    )
+    barnabasLegacy = b.legacy
+  }
   const memo = merged.memo !== sent.memo && cur.memo.trim() === sent.memo ? merged.memo : cur.memo
-  if (newcomers === cur.newcomers && visitors === cur.visitors && barnabas === cur.barnabas && memo === cur.memo) return cur
-  return { newcomers, visitors, barnabas, memo }
+  if (
+    newcomers === cur.newcomers &&
+    visitors === cur.visitors &&
+    barnabas === cur.barnabas &&
+    barnabasLegacy === cur.barnabasLegacy &&
+    memo === cur.memo
+  )
+    return cur
+  return { newcomers, visitors, barnabas, barnabasLegacy, memo }
 }
 
 function cleanRows(rows: { name: string; note: string }[]): NamedNote[] {
   return rows.map((r) => ({ name: r.name.trim(), note: r.note.trim() })).filter((r) => r.name || r.note)
 }
 
-/** 저장할 모양: 앞뒤 공백 없애고 빈 줄은 뺀다 */
+/** 저장할 모양: 앞뒤 공백 없애고 빈 줄은 뺀다 (바나바는 lib/barnabas.ts 의 저장 글로) */
 function clean(d: Draft): NoteContent {
-  return { newcomers: cleanRows(d.newcomers), visitors: cleanRows(d.visitors), barnabas: d.barnabas.trim(), memo: d.memo.trim() }
+  return { newcomers: cleanRows(d.newcomers), visitors: cleanRows(d.visitors), barnabas: barnabasStore(d), memo: d.memo.trim() }
 }
 
+/** 저장본을 같은 모양으로 (예전 바나바 글은 그것을 읽은 저장 글로 바꿔 비교한다: 열기만 해서는 다시 저장하지 않게) */
 function contentOf(n: WeekNote | undefined): NoteContent {
   return {
     newcomers: cleanRows(n?.newcomers ?? []),
     visitors: cleanRows(n?.visitors ?? []),
-    barnabas: (n?.barnabas ?? '').trim(),
+    barnabas: normalizeBarnabas(n?.barnabas),
     memo: (n?.memo ?? '').trim(),
   }
 }
@@ -252,18 +303,21 @@ function scrollBox(el: HTMLElement): HTMLElement | null {
 
 /* ───────────── 입력 화면 ───────────── */
 
-export type NoteSection = 'newcomers' | 'visitors'
+export type NoteSection = 'newcomers' | 'visitors' | 'barnabas'
 
 /**
  * 그 주일의 기타 기록 (새신자·방문·바나바·메모).
  * - 입력하면 0.6초 뒤, 그리고 입력칸을 벗어날 때 저장
  * - 입력 중에는 다른 기기에서 바뀐 내용이 와도 덮어쓰지 않는다 (벗어난 뒤에 반영)
  * - 날짜마다 key 를 바꿔 새로 그리고, 사라질 때(창을 닫을 때 포함) 남은 내용을 저장한다
- * - focusSection 이 '방문'이면 방문 칸으로 내려서 연다
+ * - focusSection 이 '방문'·'바나바'면 그 칸으로 내려서 연다
  * - 테두리·제목은 감싸는 창(WeekNoteSheet)이 맡는다
  */
 export function WeekNoteEditor({ date, focusSection }: { date: ISODate; focusSection?: NoteSection }) {
   const note = useStore((s) => s.notes[date])
+  /** 지난주 기록 ('지난주 명단 불러오기'용) */
+  const prevDate = addDays(date, -7)
+  const prevNote = useStore((s) => s.notes[prevDate])
   const [restored] = useState(() => pendingFor(date, note))
   const [draft, setDraft] = useState<Draft>(() => restored?.draft ?? toDraft(note))
   const [focusKey, setFocusKey] = useState<string | null>(null)
@@ -285,6 +339,7 @@ export function WeekNoteEditor({ date, focusSection }: { date: ISODate; focusSec
   /** 이어받은 입력을 처리했음 (개발 모드에서 두 번 실행돼도 한 번만) */
   const tookRestored = useRef(false)
   const visitorsHead = useRef<HTMLHeadingElement>(null)
+  const barnabasHead = useRef<HTMLHeadingElement>(null)
 
   const replaceDraft = useCallback((next: Draft) => {
     draftRef.current = next
@@ -405,18 +460,18 @@ export function WeekNoteEditor({ date, focusSection }: { date: ISODate; focusSec
     }
   }, [date, flush, restored, replaceDraft, track])
 
-  // '방문' 칸을 눌러 열었으면 방문 칸으로 내린다 (그리기 전에 맞춰서 화면이 튀지 않게)
+  // '방문'·'바나바' 칸을 눌러 열었으면 그 칸으로 내린다 (그리기 전에 맞춰서 화면이 튀지 않게)
   useLayoutEffect(() => {
-    const el = visitorsHead.current
-    if (focusSection !== 'visitors' || !el) return
+    const el = focusSection === 'visitors' ? visitorsHead.current : focusSection === 'barnabas' ? barnabasHead.current : null
+    if (!el) return
     const box = scrollBox(el)
     if (box) box.scrollTop += el.getBoundingClientRect().top - box.getBoundingClientRect().top - 8
   }, [focusSection])
 
-  // 초점도 방문 칸으로. 창이 먼저 초점을 잡은 뒤에 옮겨야 닫을 때 누른 칸으로 돌아간다
+  // 초점도 그 칸으로. 창이 먼저 초점을 잡은 뒤에 옮겨야 닫을 때 누른 칸으로 돌아간다
   useEffect(() => {
-    const el = visitorsHead.current
-    if (focusSection !== 'visitors' || !el) return
+    const el = focusSection === 'visitors' ? visitorsHead.current : focusSection === 'barnabas' ? barnabasHead.current : null
+    if (!el) return
     const t = setTimeout(() => el.focus({ preventScroll: true }), 0)
     return () => clearTimeout(t)
   }, [focusSection])
@@ -458,6 +513,30 @@ export function WeekNoteEditor({ date, focusSection }: { date: ISODate; focusSec
   const newcomerCount = draft.newcomers.filter((r) => r.name.trim()).length
   const visitorCount = draft.visitors.filter((r) => r.name.trim()).length
 
+  /* 바나바 명단 */
+  const addBarnabas = () => {
+    const k = rowKey()
+    setFocusKey(k)
+    // 새로 온 사람: 등록한 주 = 출석 1주, 바나바 1주 (교육을 못 받았으면 바나바를 0으로)
+    update((d) => ({ ...d, barnabas: [...d.barnabas, { k, name: '', attend: 1, barnabas: 1 }] }))
+  }
+  const changeBarnabas = (k: string, patch: Partial<BarnabasPerson>) =>
+    update((d) => ({ ...d, barnabas: d.barnabas.map((r) => (r.k === k ? { ...r, ...clampPerson({ ...r, ...patch }) } : r)) }))
+  const removeBarnabas = (k: string) => update((d) => ({ ...d, barnabas: d.barnabas.filter((r) => r.k !== k) }))
+  const clearLegacy = () => update((d) => ({ ...d, barnabasLegacy: '' }))
+  // 같은 이름은 한 번만 세요 (출석부·요약 칸과 같게)
+  const barnabasCount = new Set(draft.barnabas.filter((r) => r.name.trim()).map((r) => nameKey(r.name))).size
+  // 이번 주 명단이 비어 있고 지난주 명단이 있으면: 지난주 명단을 출석 +1주로 불러올 수 있다
+  const prevPeople = parseBarnabas(prevNote?.barnabas).people
+  const canLoadPrev = draft.barnabas.every((r) => !r.name.trim()) && prevPeople.length > 0
+  const loadPrev = () => {
+    const rows = toBarnabasRows(nextWeekPeople(prevPeople))
+    update((d) => ({ ...d, barnabas: rows }))
+    useStore
+      .getState()
+      .toast(`지난주 명단 ${rows.length}명을 출석 +1주로 불러왔어요. 이번 주 바나바 교육을 받은 사람은 바나바를 올려 주세요`, 'success')
+  }
+
   return (
     <div onFocus={onFocus} onBlur={onBlur}>
       <NamedList
@@ -491,17 +570,23 @@ export function WeekNoteEditor({ date, focusSection }: { date: ISODate; focusSec
 
       <div className="my-5 h-px bg-line" />
 
+      <BarnabasList
+        headingRef={barnabasHead}
+        count={barnabasCount}
+        rows={draft.barnabas}
+        legacy={draft.barnabasLegacy}
+        focusKey={focusKey}
+        prevLabel={canLoadPrev ? `${labelMD(prevDate)} 명단 ${prevPeople.length}명` : null}
+        onLoadPrev={loadPrev}
+        onAdd={addBarnabas}
+        onChange={changeBarnabas}
+        onRemove={removeBarnabas}
+        onClearLegacy={clearLegacy}
+      />
+
+      <div className="my-5 h-px bg-line" />
+
       <div className="grid gap-4">
-        <TextArea
-          label="바나바 현황"
-          rows={2}
-          value={draft.barnabas}
-          onChange={(e) => {
-            const v = e.target.value
-            update((d) => ({ ...d, barnabas: v }))
-          }}
-          placeholder="예: 한소망(출석4주차, 바나바-1주차)"
-        />
         <TextArea
           label="메모"
           rows={2}
@@ -616,6 +701,234 @@ function NamedList({
         </span>
         {addLabel}
       </button>
+    </div>
+  )
+}
+
+/* ───────────── 바나바 명단 (이름 · 출석 N주 · 바나바 M주) ───────────── */
+
+function BarnabasList({
+  headingRef,
+  count,
+  rows,
+  legacy,
+  focusKey,
+  prevLabel,
+  onLoadPrev,
+  onAdd,
+  onChange,
+  onRemove,
+  onClearLegacy,
+}: {
+  /** 이 칸으로 바로 열 때 초점을 받는 제목 */
+  headingRef: Ref<HTMLHeadingElement>
+  count: number
+  rows: BarnabasRow[]
+  /** 명단으로 바꾸지 못한 예전 글 */
+  legacy: string
+  focusKey: string | null
+  /** '지난주 명단 불러오기' 설명 ('11월 15일 명단 4명'). 불러올 수 없으면 null */
+  prevLabel: string | null
+  onLoadPrev: () => void
+  onAdd: () => void
+  onChange: (k: string, patch: Partial<BarnabasPerson>) => void
+  onRemove: (k: string) => void
+  onClearLegacy: () => void
+}) {
+  const [confirmClear, setConfirmClear] = useState(false)
+  // 같은 이름이 두 줄 이상이면 알려 줘요 (인원은 한 번만 세요)
+  const seen = new Map<string, number>()
+  for (const r of rows) if (r.name.trim()) seen.set(nameKey(r.name), (seen.get(nameKey(r.name)) ?? 0) + 1)
+  const dupKeys = new Set([...seen].filter(([, n]) => n > 1).map(([k]) => k))
+  return (
+    <div>
+      <h3 ref={headingRef} tabIndex={-1} className="mb-1 flex items-center gap-1.5 rounded-md text-[15px] font-bold">
+        바나바 현황
+        <span className="tabular rounded-full bg-present2-soft px-2 py-0.5 text-[13px] font-bold text-present2-ink">{count}명</span>
+      </h3>
+      <p className="mb-2.5 text-[13px] leading-snug text-ink-3">
+        등록한 주가 출석 1주예요. 바나바 교육을 받은 주만큼 바나바를 올려 주세요. 명단 인원은 총 출석에 더해져요.
+      </p>
+
+      {legacy && (
+        <div className="mb-2.5 rounded-2xl border border-dashed border-line bg-hover px-4 py-3 md:max-w-xl">
+          <div className="flex min-h-8 items-center justify-between gap-2">
+            <span className="text-[13px] font-bold text-ink-2">예전에 적은 글</span>
+            {confirmClear ? (
+              <span className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setConfirmClear(false)}
+                  className="h-8 rounded-lg px-2.5 text-[13px] font-semibold text-ink-2 hover:bg-black/5"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmClear(false)
+                    onClearLegacy()
+                  }}
+                  className="h-8 rounded-lg bg-danger px-2.5 text-[13px] font-semibold text-white hover:brightness-95"
+                >
+                  지우기
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmClear(true)}
+                className="h-8 shrink-0 rounded-lg px-2.5 text-[13px] font-semibold text-danger hover:bg-danger-soft"
+              >
+                지우기
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[14px] leading-relaxed break-words whitespace-pre-wrap text-ink">{legacy}</p>
+          <p className="mt-1.5 text-[12px] leading-snug text-ink-3">
+            {confirmClear
+              ? '지우면 되돌릴 수 없어요. 아래 명단으로 옮겨 적었는지 확인해 주세요.'
+              : '출석부에는 그대로 적히지만 인원에는 들어가지 않아요. 아래 명단으로 옮겨 적은 뒤 지워 주세요.'}
+          </p>
+        </div>
+      )}
+
+      {prevLabel && (
+        <button
+          type="button"
+          onClick={onLoadPrev}
+          className="mb-2.5 flex w-full items-center gap-3 rounded-2xl border border-dashed border-brand/40 bg-brand-soft/60 px-3.5 py-3 text-left transition hover:bg-brand-soft active:scale-[0.99] md:max-w-xl"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white">
+            <Icon name="undo" size={18} strokeWidth={2.2} />
+          </span>
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block text-[15px] font-bold text-brand-ink">지난주 명단 불러오기</span>
+            <span className="mt-0.5 block text-[13px] text-ink-3">{prevLabel} · 출석 +1주</span>
+          </span>
+        </button>
+      )}
+
+      {rows.length > 0 && (
+        <ul className="mb-2 flex flex-col gap-2 md:max-w-xl">
+          {rows.map((r) => (
+            <BarnabasItem
+              key={r.k}
+              row={r}
+              duplicate={dupKeys.has(nameKey(r.name)) && !!r.name.trim()}
+              autoFocus={r.k === focusKey}
+              onChange={onChange}
+              onRemove={onRemove}
+            />
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        onClick={onAdd}
+        className="inline-flex h-11 items-center gap-1.5 rounded-xl px-1 text-sm font-semibold text-brand-ink hover:text-brand-deep"
+      >
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-brand text-white">
+          <Icon name="plus" size={15} strokeWidth={2.4} />
+        </span>
+        바나바 추가
+      </button>
+    </div>
+  )
+}
+
+function BarnabasItem({
+  row,
+  duplicate,
+  autoFocus,
+  onChange,
+  onRemove,
+}: {
+  row: BarnabasRow
+  /** 명단에 같은 이름이 또 있어요 */
+  duplicate: boolean
+  autoFocus: boolean
+  onChange: (k: string, patch: Partial<BarnabasPerson>) => void
+  onRemove: (k: string) => void
+}) {
+  const name = row.name.trim()
+  const who = name || '이 사람'
+  return (
+    <li className="rounded-2xl border border-line p-2">
+      <div className="flex items-center gap-1">
+        <input
+          autoFocus={autoFocus}
+          value={row.name}
+          onChange={(e) => onChange(row.k, { name: e.target.value })}
+          onKeyDown={(e) => {
+            // 이름을 다 적으면 키보드를 내리고 아래 숫자를 누르면 된다
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              e.currentTarget.blur()
+            }
+          }}
+          enterKeyHint="done"
+          placeholder="이름"
+          aria-label="바나바 이름"
+          className={`${INPUT} flex-1 font-semibold`}
+        />
+        <button
+          type="button"
+          aria-label={`${who} 지우기`}
+          onClick={() => onRemove(row.k)}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-ink-3 hover:bg-hover hover:text-danger"
+        >
+          <Icon name="x" size={18} />
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
+        <WeekStepper label="출석" who={who} value={row.attend} min={1} max={MAX_WEEKS} onChange={(v) => onChange(row.k, { attend: v })} />
+        <WeekStepper label="바나바" who={who} value={row.barnabas} min={0} max={row.attend} onChange={(v) => onChange(row.k, { barnabas: v })} />
+      </div>
+      {duplicate && <p className="mt-1.5 px-1 text-[12px] font-semibold text-danger">명단에 같은 이름이 또 있어요. 인원은 한 번만 세요.</p>}
+      {name && (
+        <p className="mt-1.5 truncate px-1 text-[12px] text-ink-3">
+          출석부에 <b className="font-semibold text-ink-2">{barnabasEntryText({ name, attend: row.attend, barnabas: row.barnabas })}</b>
+        </p>
+      )}
+    </li>
+  )
+}
+
+/** [출석   − 2주 +] : 휴대폰에서 누르기 쉬운 큰 버튼 */
+function WeekStepper({
+  label,
+  who,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string
+  /** 화면 읽기용 이름 */
+  who: string
+  value: number
+  min: number
+  max: number
+  onChange: (v: number) => void
+}) {
+  const btn =
+    'flex h-11 w-9 shrink-0 items-center justify-center rounded-xl text-ink-2 transition hover:bg-black/5 active:bg-black/10 disabled:text-line disabled:hover:bg-transparent'
+  return (
+    <div role="group" aria-label={`${who} ${label}`} className="flex h-11 min-w-0 items-center rounded-xl bg-hover pl-2.5">
+      <span className="shrink-0 text-[13px] font-semibold text-ink-2">{label}</span>
+      <span className="ml-auto flex items-center">
+        <button type="button" aria-label={`${label} 1주 줄이기`} disabled={value <= min} onClick={() => onChange(value - 1)} className={btn}>
+          <Icon name="minus" size={18} strokeWidth={2.4} />
+        </button>
+        <span className="tabular w-8 text-center text-[16px] font-bold text-ink" aria-live="polite">
+          {value}
+          <span className="text-[12px] font-semibold text-ink-3">주</span>
+        </span>
+        <button type="button" aria-label={`${label} 1주 늘리기`} disabled={value >= max} onClick={() => onChange(value + 1)} className={btn}>
+          <Icon name="plus" size={18} strokeWidth={2.4} />
+        </button>
+      </span>
     </div>
   )
 }

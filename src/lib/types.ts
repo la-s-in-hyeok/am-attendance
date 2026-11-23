@@ -64,7 +64,10 @@ export interface WeekNote {
   newcomers: NamedNote[]
   /** 방문 (출석 인원에 더해진다) */
   visitors: NamedNote[]
-  /** 바나바 현황 자유 기록 */
+  /**
+   * 바나바 현황. 명단을 JSON 글로 넣는다 ({"v":1,"people":[{"name","attend","barnabas"}]}) — 읽고 쓰기는 lib/barnabas.ts.
+   * 예전에 손으로 적은 글도 그대로 들어 있을 수 있다. 명단 인원은 출석 인원에 더해진다
+   */
   barnabas: string
   /** 그 밖의 메모 */
   memo: string

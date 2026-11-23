@@ -1,7 +1,6 @@
-import { SERVICE_LABEL } from '../../lib/types'
+import type { CSSProperties } from 'react'
 import type { SheetBlock, SheetCell, SheetData } from '../../lib/report'
-import { cellStatusText, SERVICES, serviceSplitText } from '../../lib/report'
-import { ServiceSwatch } from './ServiceBits'
+import { cellStatusText, GRAND_TOTAL_LABEL, GRAND_TOTAL_NOTE, nameWidthEm } from '../../lib/report'
 import { SERVICE_FILL, type SheetVariant } from './serviceStyle'
 
 /**
@@ -9,6 +8,7 @@ import { SERVICE_FILL, type SheetVariant } from './serviceStyle'
  * 목장명 | 목자 | 목장 가족 (10칸) | 총원 | 출석
  * - screen: 앱 화면용 (1부 출석 = 노란 칸, 2부 출석 = 민트 칸, 결석은 상태 색 글씨)
  * - print: 인쇄용 (검은 글씨·검은 테두리, 엑셀과 같은 노랑 FFD700 / 민트 9BE5C8)
+ * - 목자 칸(B열)은 목장마다 늘 두 칸: 위 = 목자, 아래 = 총무 (줄이 3줄 이상이면 세로로 합쳐서)
  */
 
 type Variant = SheetVariant
@@ -35,6 +35,16 @@ const SCREEN_STATUS: Record<Exclude<SheetCell['status'], 'present'>, string> = {
   unchecked: 'text-ink-3',
 }
 
+/**
+ * 이름 글자 크기: 기본 크기, 그리고 칸 폭을 잴 수 없을 때 쓰는 가장 좁은 이름 칸 폭
+ * - screen: 표 최소 폭 700px − 여백 40px 의 7% ≈ 46px
+ * - print: A4 가로 본문 277mm 의 7% ≈ 19.3mm − 좌우 여백 0.8mm
+ */
+const NAME_SIZE: Record<Variant, { base: string; minBox: string }> = {
+  screen: { base: '13px', minBox: '46px' },
+  print: { base: '8.6pt', minBox: '18.4mm' },
+}
+
 function cellLook(c: SheetCell, variant: Variant): string {
   if (c.status === 'present') return `${SERVICE_FILL[variant][c.service ?? 1]} font-semibold ${variant === 'screen' ? 'text-ink' : ''}`
   return variant === 'screen' ? SCREEN_STATUS[c.status] : ''
@@ -45,52 +55,51 @@ function cellTitle(c: SheetCell): string {
   return c.reason ? `${c.name} · ${s} (${c.reason})` : `${c.name} · ${s}`
 }
 
-/** 출석 칸: 합계 + 그 아래 작게 1부 / 2부 */
-function PresentCount({ b, variant }: { b: SheetBlock; variant: Variant }) {
-  const screen = variant === 'screen'
+/** 이름: 줄을 바꾸지 않고, 칸보다 길면 칸 폭에 맞춰 글자를 줄인다 (index.css .sheet-name) */
+function NameText({ name, variant }: { name: string; variant: Variant }) {
+  const size = NAME_SIZE[variant]
+  // 글꼴마다 폭이 조금씩 달라서 6% 여유를 둔다
+  const style = { '--name-em': (nameWidthEm(name) * 1.06).toFixed(3), '--name-base': size.base, '--name-min-box': size.minBox } as CSSProperties
   return (
-    <>
-      <span className={`block ${screen ? 'text-[14px]' : 'text-[10pt]'}`}>{b.present}</span>
-      {b.present > 0 && (
-        <span className={`mt-0.5 inline-flex flex-col items-start font-semibold ${screen ? 'gap-px text-[12px] text-ink-3' : 'text-[6.6pt] leading-[1.25]'}`}>
-          {SERVICES.map((s) => (
-            <span key={s} className="inline-flex items-center gap-[3px] whitespace-nowrap">
-              <ServiceSwatch
-                service={s}
-                variant={variant}
-                className={screen ? 'h-[7px] w-[7px] rounded-[2px]' : 'h-[1.6mm] w-[1.6mm] outline outline-[0.2mm] outline-black/40'}
-              />
-              {SERVICE_LABEL[s]} {s === 1 ? b.service1 : b.service2}
-            </span>
-          ))}
-        </span>
-      )}
-    </>
+    <span className="sheet-name-box block">
+      <span className="sheet-name" style={style}>
+        {name}
+      </span>
+    </span>
   )
 }
 
 function NameCell({
   c,
   variant,
+  rowSpan = 1,
   onCellClick,
 }: {
   c: SheetCell | null
   variant: Variant
+  /** 세로로 합친 줄 수 (목자·총무 칸) */
+  rowSpan?: number
   onCellClick?: (c: SheetCell) => void
 }) {
-  const base = `${CELL[variant]} break-all`
+  const base = CELL[variant]
+  const span = rowSpan > 1 ? rowSpan : undefined
   if (variant === 'print') {
-    return <td className={`${base} h-[6.2mm] px-[0.4mm] ${c ? cellLook(c, variant) : ''}`}>{c?.name ?? ''}</td>
+    return (
+      <td rowSpan={span} className={`${base} h-[6.2mm] px-[0.4mm] ${c ? cellLook(c, variant) : ''}`}>
+        {c && <NameText name={c.name} variant={variant} />}
+      </td>
+    )
   }
-  if (!c) return <td className={`${base} h-9`} />
-  // 좌우 여백 없이: 좁은 칸(약 46px)에도 '김민규B' 같은 네 글자 이름이 한 줄에 들어가게
+  if (!c) return <td rowSpan={span} className={`${base} h-9`} />
+  // 좌우 여백 없이: 좁은 칸(약 46px)에도 '김민규B' 같은 네 글자 이름이 한 줄에 들어가게 (그래도 길면 글자를 줄인다)
   return (
     <td
+      rowSpan={span}
       className={`${base} h-9 px-0 ${cellLook(c, variant)} ${onCellClick ? 'cursor-pointer' : ''}`}
       title={cellTitle(c)}
       onClick={onCellClick ? () => onCellClick(c) : undefined}
     >
-      {c.name}
+      <NameText name={c.name} variant={variant} />
     </td>
   )
 }
@@ -160,7 +169,8 @@ export function SheetTable({
                   {b.group.name}
                 </td>
               )}
-              <NameCell c={row.lead} variant={variant} onCellClick={onCellClick} />
+              {/* 목자·총무 칸: 위 칸이 이 줄까지 내려와 있으면 그리지 않는다 */}
+              {row.lead && <NameCell c={row.lead.cell} rowSpan={row.lead.span} variant={variant} onCellClick={onCellClick} />}
               {row.cells.map((c, k) => (
                 <NameCell key={k} c={c} variant={variant} onCellClick={onCellClick} />
               ))}
@@ -169,12 +179,13 @@ export function SheetTable({
                   <td rowSpan={b.rows.length} className={`${cell} tabular font-semibold ${screen ? 'text-ink-2' : ''}`}>
                     {b.total}
                   </td>
+                  {/* 출석 칸은 숫자만 (1부·2부는 이름 칸 색으로 구분) */}
                   <td
                     rowSpan={b.rows.length}
-                    className={`${cell} tabular font-extrabold ${screen ? 'px-0' : 'px-0.5'}`}
-                    title={`출석 ${b.present}명 (${serviceSplitText(b, '명')})`}
+                    className={`${cell} tabular font-extrabold ${screen ? 'px-0 text-[14px]' : 'px-0.5 text-[10pt]'}`}
+                    title={screen ? `출석 ${b.present}명` : undefined}
                   >
-                    <PresentCount b={b} variant={variant} />
+                    {b.present}
                   </td>
                 </>
               )}
@@ -191,18 +202,20 @@ export function SheetTable({
                 <span className={screen ? 'font-semibold text-ink' : 'font-semibold'}>{f.label} :</span>
                 {f.text ? ` ${f.text}` : ''}
               </td>
-              <td className={`${cell} tabular font-bold`}>{f.count ?? ''}</td>
+              <td className={`${cell} tabular font-bold`} title={screen && f.hint ? f.hint : undefined}>
+                {f.count}
+              </td>
             </tr>
           ))}
           <tr>
             {/* 휴대폰에서는 표가 옆으로 밀려 있으므로 왼쪽 정렬해야 글자가 보인다 */}
             <td colSpan={12} className={`${cell} px-3 font-bold ${screen ? 'h-11 text-left text-[13px] md:text-right' : 'h-[7mm] text-right'}`}>
-              총 출석 <span className={screen ? 'font-medium text-ink-3' : 'font-normal'}>(목장원 + 새신자 + 방문)</span>
+              {GRAND_TOTAL_LABEL} <span className={screen ? 'font-medium text-ink-3' : 'font-normal'}>{GRAND_TOTAL_NOTE}</span>
             </td>
             <td className={`${cell} tabular font-bold ${screen ? 'text-ink-2' : ''}`}>{sheet.memberTotal}</td>
             <td
               className={`${cell} tabular font-extrabold ${screen ? 'bg-bg text-[16px]' : `${PRINT_FILL.grand} text-[11pt]`}`}
-              title={`목장원 ${serviceSplitText({ service1: sheet.memberService1, service2: sheet.memberService2 }, '명')} + 새신자·방문`}
+              title={screen ? `목장원 ${sheet.memberPresent}명 + 새신자·방문·바나바` : undefined}
             >
               {sheet.grandTotal}
             </td>

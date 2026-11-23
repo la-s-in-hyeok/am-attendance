@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import type { ISODate } from '../../lib/types'
 import { labelFull } from '../../lib/dates'
-import { absenceTitle, fileStamp, serviceSplitText, type AbsenceReport, type SheetData } from '../../lib/report'
+import { absenceTitle, fileStamp, type AbsenceReport, type SheetData } from '../../lib/report'
 import { AbsencePrint } from './AbsencePrint'
 import { SheetTable } from './SheetTable'
 import { ServiceLegend } from './ServiceBits'
@@ -84,9 +84,7 @@ function AllSheet({ sheet, date }: { sheet: SheetData; date: ISODate }) {
       <div className="mt-[2.5mm] flex items-center justify-between gap-[4mm] text-[8pt] text-[#444]">
         <span className="inline-flex flex-wrap items-center gap-x-[3mm]">
           <ServiceLegend variant="print" className="font-semibold text-black" />
-          <span>
-            {`목장원 ${sheet.memberPresent}/${sheet.memberTotal}명 출석 (${serviceSplitText({ service1: sheet.memberService1, service2: sheet.memberService2 }, '명')})`}
-          </span>
+          <span>{`목장원 ${sheet.memberPresent}/${sheet.memberTotal}명 출석`}</span>
         </span>
         <span className="shrink-0">{labelFull(date)} · AM청년회 출석부</span>
       </div>

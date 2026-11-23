@@ -6,14 +6,16 @@ export interface Kpi {
   rate: number | null
   /** 지난달 출석률 (비교용) */
   prevRate: number | null
-  /** 주일 평균 출석 인원 (새신자·방문 포함) */
+  /** 주일 평균 출석 인원 (새신자·방문·바나바 포함) */
   avgAttend: number | null
-  /** 주일 평균을 1부 / 2부 / 새신자·방문으로 나눈 값 (합 = avgAttend) */
+  /** 주일 평균을 1부 / 2부 / 새신자·방문·바나바로 나눈 값 (합 = avgAttend) */
   avgParts: { service1: number; service2: number; extra: number } | null
   heldCount: number
   sundayCount: number
   newcomers: number
   visitors: number
+  /** 그 달 바나바 명단에 오른 사람 (한 번만 센다) */
+  barnabas: number
 }
 
 /** 요약 칸 하나. brand 이면 파랗게 칠한 대표 칸 */
@@ -45,7 +47,7 @@ function deltaText(rate: number | null, prev: number | null): string {
   return `지난달 ${d > 0 ? '+' : '−'}${Math.abs(d)}%p`
 }
 
-/** 주일 평균: ● 1부 18  ● 2부 9 (나머지는 새신자·방문. 새신자 수는 제목 줄에 따로 보여 준다) */
+/** 주일 평균: ● 1부 18  ● 2부 9 (나머지는 새신자·방문·바나바. 그 수는 제목 줄에 따로 보여 준다) */
 function AvgSplit({ parts }: { parts: NonNullable<Kpi['avgParts']> }) {
   const [s1, s2, extra] = roundParts([parts.service1, parts.service2, parts.extra])
   return (
@@ -56,7 +58,7 @@ function AvgSplit({ parts }: { parts: NonNullable<Kpi['avgParts']> }) {
           {SERVICE_STYLE[s].label} <b className="font-bold text-ink-2">{s === 1 ? s1 : s2}</b>
         </span>
       ))}
-      {extra > 0 && <span className="sr-only">새신자·방문 {extra}</span>}
+      {extra > 0 && <span className="sr-only">새신자·방문·바나바 {extra}</span>}
     </span>
   )
 }

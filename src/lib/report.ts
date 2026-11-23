@@ -9,6 +9,7 @@ import { SERVICE_LABEL, STATUS_LABEL } from './types'
 import type { Counts, GroupWeek, RosterEntry, WeekTotals } from './compute'
 import { addCounts, emptyCounts, pct, rate, serviceOf } from './compute'
 import { labelDot, labelMD } from './dates'
+import { barnabasLineText, cleanPeople, parseBarnabas } from './barnabas'
 
 /* ───────────── 공통 ───────────── */
 
@@ -30,6 +31,27 @@ export function namedNoteText(n: NamedNote): string {
 
 function cleanNotes(list: NamedNote[] | undefined): NamedNote[] {
   return (list ?? []).filter((n) => n.name.trim())
+}
+
+/**
+ * 이름의 글자 폭 (글자 크기 1 = 1em 기준). 한글은 약 1em, 영문·숫자는 약 0.6em (대문자는 조금 넓게)
+ * '박지환A' = 3 + 0.65 = 3.65em — 칸이 좁으면 이 폭에 맞춰 글자를 줄여 한 줄로 쓴다 (화면·인쇄·Word)
+ */
+export function nameWidthEm(name: string): number {
+  let w = 0
+  for (const ch of name) {
+    if (/[A-Z]/.test(ch)) w += 0.65
+    else if (/[a-z0-9]/.test(ch)) w += 0.58
+    else if (ch === ' ') w += 0.3
+    else if (/[.\-()·]/.test(ch)) w += 0.4
+    else w += 1
+  }
+  return Math.max(w, 1)
+}
+
+/** 칸 폭(width)에 이름이 한 줄로 들어가는 글자 크기 — 기본 크기(base)보다 커지지는 않는다 (단위는 width 와 같게) */
+export function fitNameSize(name: string, width: number, base: number): number {
+  return Math.min(base, width / nameWidthEm(name))
 }
 
 /** 2026.11.15 */
@@ -190,12 +212,17 @@ export function groupReportText(date: ISODate, gw: GroupWeek, opts: ReportTextOp
   return [r.heading, ...groupReportLines(r, opts).map(lineText)].join('\n')
 }
 
+/** 바나바 현황 줄의 글: '김예진-3주, 김휘민-출석2주(바나바1주)' */
+export function barnabasText(note: WeekNote | undefined): string {
+  return barnabasLineText(parseBarnabas(note?.barnabas))
+}
+
 /** 새신자·방문·바나바 줄 (내용이 있는 것만) */
 export function extraReportLines(note: WeekNote | undefined): ReportLine[] {
   const out: ReportLine[] = []
   const newcomers = cleanNotes(note?.newcomers)
   const visitors = cleanNotes(note?.visitors)
-  const barnabas = note?.barnabas.trim() ?? ''
+  const barnabas = barnabasText(note)
   if (newcomers.length) out.push({ label: `* 새친구 / 새신자 (${newcomers.length}명)`, value: newcomers.map(namedNoteText).join(', ') })
   if (visitors.length) out.push({ label: `* 방문 (${visitors.length}명)`, value: visitors.map(namedNoteText).join(', ') })
   if (barnabas) out.push({ label: '* 바나바 현황', value: barnabas })
@@ -205,14 +232,19 @@ export function extraReportLines(note: WeekNote | undefined): ReportLine[] {
 /**
  * 전체 현황 머리말 줄들
  * [11월 15일 AM청년회 출석 현황]
- * - 총 출석 : 33명 (1부 18명 · 2부 12명, 새신자 2명, 방문 1명)
+ * - 총 출석 : 36명 (1부 18명 · 2부 12명, 새신자 2명, 방문 1명, 바나바 4명(새신자 1명 겹침))
  * - 출석률 : 75% (목장원 30/40명)
  * - 미확인 : 3명      ← 미확인이 있을 때만
+ * (새신자이면서 바나바 명단에도 있는 사람은 총 출석에 한 번만 들어가요: '겹침'으로 알려 준다)
  */
 export function summaryLines(date: ISODate, totals: WeekTotals): string[] {
   const parts = [serviceSplitText(totals, '명')]
   if (totals.newcomers) parts.push(`새신자 ${totals.newcomers}명`)
   if (totals.visitors) parts.push(`방문 ${totals.visitors}명`)
+  if (totals.barnabas) {
+    const overlap = totals.newcomers - totals.newcomersOnly
+    parts.push(overlap > 0 ? `바나바 ${totals.barnabas}명(새신자 ${overlap}명 겹침)` : `바나바 ${totals.barnabas}명`)
+  }
   const lines = [
     `[${labelMD(date)} AM청년회 출석 현황]`,
     `- 총 출석 : ${totals.grandTotal}명 (${parts.join(', ')})`,
@@ -255,9 +287,20 @@ export interface SheetCell {
   reason: string
 }
 
+/** B열(목자·총무) 칸 하나: 여러 줄을 세로로 합친 칸 */
+export interface SheetLead {
+  /** 목자 또는 총무 (없으면 빈 칸) */
+  cell: SheetCell | null
+  /** 이 칸이 세로로 차지하는 줄 수 (1 이상) */
+  span: number
+}
+
 export interface SheetRow {
-  /** B열: 첫 줄 = 목자, 둘째 줄 = 총무 */
-  lead: SheetCell | null
+  /**
+   * B열: 이 줄에서 시작하는 목자/총무 칸. 위 칸이 이 줄까지 내려와 있으면 null (그리지 않는다)
+   * B열은 늘 두 칸: 위 = 목자, 아래 = 총무 (목장원이 많아 줄이 늘어도 두 칸이 나눠서 차지)
+   */
+  lead: SheetLead | null
   /** C~L열: 항상 10칸 (빈 칸은 null) */
   cells: (SheetCell | null)[]
 }
@@ -270,10 +313,6 @@ export interface SheetBlock {
   total: number
   /** 출석 (= 1부 + 2부) */
   present: number
-  /** 1부 출석 */
-  service1: number
-  /** 2부 출석 */
-  service2: number
   summary: Counts
 }
 
@@ -282,8 +321,10 @@ export interface SheetFooterRow {
   /** '* 새친구 / 새신자' */
   label: string
   text: string
-  /** 출석 칸에 들어가는 숫자 (바나바는 없음) */
-  count: number | null
+  /** 출석 칸에 들어가는 숫자 (세 줄 + 목장원 출석 = 총 출석) */
+  count: number
+  /** 화면에서 숫자에 마우스를 올리면 보이는 설명 (없으면 '') */
+  hint: string
 }
 
 export interface SheetData {
@@ -295,13 +336,13 @@ export interface SheetData {
   memberTotal: number
   /** 목장원 출석 합 (= 1부 + 2부) */
   memberPresent: number
-  /** 목장원 1부 출석 합 */
-  memberService1: number
-  /** 목장원 2부 출석 합 */
-  memberService2: number
-  /** 목장원 출석 + 새신자 + 방문 */
+  /** 목장원 출석 + 새신자 + 방문 + 바나바 (새신자·바나바에 같이 적힌 사람은 한 번만) */
   grandTotal: number
 }
+
+/** 총 출석 줄의 글 (화면·인쇄·Word·엑셀) */
+export const GRAND_TOTAL_LABEL = '총 출석'
+export const GRAND_TOTAL_NOTE = '(목장원 + 새신자 + 방문 + 바나바)'
 
 function toCell(e: RosterEntry): SheetCell {
   return {
@@ -319,9 +360,15 @@ export function cellStatusText(c: Pick<SheetCell, 'status' | 'service'>): string
   return c.status === 'present' ? `${SERVICE_LABEL[c.service ?? 1]} 출석` : statusText(c.status)
 }
 
+/** B열 두 칸이 나눠 갖는 줄 수: 목자 = 앞쪽 절반(홀수면 한 줄 더), 총무 = 나머지 — 3줄이면 2 + 1 (교회 엑셀 B21:B22 = 목자, B23 = 총무) */
+export function leadSpans(rowCount: number): [leader: number, manager: number] {
+  const leader = Math.ceil(rowCount / 2)
+  return [leader, rowCount - leader]
+}
+
 /**
  * 한 목장을 엑셀처럼 줄로 나눈다.
- * B열 첫 줄 = 목자, 둘째 줄 = 총무, 나머지는 C~L 에 10명씩.
+ * B열은 늘 두 칸 (위 = 목자, 아래 = 총무, 줄이 3줄 이상이면 세로로 합쳐서), 나머지는 C~L 에 10명씩.
  */
 export function buildSheetBlock(gw: GroupWeek): SheetBlock {
   const entries = gw.entries
@@ -329,33 +376,62 @@ export function buildSheetBlock(gw: GroupWeek): SheetBlock {
   const manager = entries.find((e) => e.member.role === 'manager')
   const others = entries.filter((e) => e !== leader && e !== manager).map(toCell)
   const rowCount = Math.max(2, Math.ceil(others.length / SHEET_NAME_COLS))
+  const [leaderSpan, managerSpan] = leadSpans(rowCount)
   const rows: SheetRow[] = []
   for (let i = 0; i < rowCount; i++) {
     const slice: (SheetCell | null)[] = others.slice(i * SHEET_NAME_COLS, (i + 1) * SHEET_NAME_COLS)
     while (slice.length < SHEET_NAME_COLS) slice.push(null)
-    const lead = i === 0 ? (leader ? toCell(leader) : null) : i === 1 ? (manager ? toCell(manager) : null) : null
+    const lead: SheetLead | null =
+      i === 0
+        ? { cell: leader ? toCell(leader) : null, span: leaderSpan }
+        : i === leaderSpan
+          ? { cell: manager ? toCell(manager) : null, span: managerSpan }
+          : null
     rows.push({ lead, cells: slice })
   }
   const s = gw.summary
-  return { group: gw.group, rows, total: s.total, present: s.present, service1: s.service1, service2: s.service2, summary: s }
+  return { group: gw.group, rows, total: s.total, present: s.present, summary: s }
 }
 
 export function buildSheet(date: ISODate, week: GroupWeek[], totals: WeekTotals, note: WeekNote | undefined): SheetData {
   const newcomers = cleanNotes(note?.newcomers)
   const visitors = cleanNotes(note?.visitors)
+  const barnabas = parseBarnabas(note?.barnabas)
+  const overlap = totals.newcomers - totals.newcomersOnly
   return {
     date,
     title: sheetTitle(date),
     blocks: week.map(buildSheetBlock),
     footer: [
-      { key: 'newcomers', label: '* 새친구 / 새신자', text: newcomers.map(namedNoteText).join(', '), count: totals.newcomers },
-      { key: 'visitors', label: '* 방문', text: visitors.map(namedNoteText).join(', '), count: totals.visitors },
-      { key: 'barnabas', label: '* 바나바 현황', text: note?.barnabas.trim() ?? '', count: null },
+      // 새친구 칸 숫자 = 바나바 명단에 없는 새신자만. 바나바 명단에도 있는 사람은 바나바 칸에서 센다
+      // (그래야 출석 칸을 위에서부터 더한 값 = 총 출석. 교회 엑셀도 이 열을 더해서 총 출석을 낸다)
+      {
+        key: 'newcomers',
+        label: '* 새친구 / 새신자',
+        // 겹친 사람이 있으면 종이·엑셀·Word 에서도 숫자가 적은 이유가 보이게 줄 끝에 적는다
+        text: [newcomers.map(namedNoteText).join(', '), overlap > 0 ? `(바나바 명단에도 있는 ${overlap}명은 바나바 칸에서 셈)` : '']
+          .filter(Boolean)
+          .join(' '),
+        count: totals.newcomersOnly,
+        hint: overlap > 0 ? `새신자 ${totals.newcomers}명 중 바나바 명단에도 있는 ${overlap}명은 바나바 칸에서 셌어요` : '',
+      },
+      { key: 'visitors', label: '* 방문', text: visitors.map(namedNoteText).join(', '), count: totals.visitors, hint: '' },
+      {
+        key: 'barnabas',
+        label: '* 바나바 현황',
+        text: barnabasLineText(barnabas),
+        // 명단에 있는 사람 수 (명단으로 바꾸지 못한 예전 글은 세지 않는다)
+        count: totals.barnabas,
+        hint: [
+          barnabas.legacy ? '예전에 적은 글은 인원에 넣지 않았어요' : '',
+          totals.barnabas < cleanPeople(barnabas.people).length ? '같은 이름은 한 번만 셌어요' : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      },
     ],
     memberTotal: totals.total,
     memberPresent: totals.present,
-    memberService1: totals.service1,
-    memberService2: totals.service2,
     grandTotal: totals.grandTotal,
   }
 }

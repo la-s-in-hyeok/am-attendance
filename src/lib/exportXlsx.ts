@@ -18,6 +18,7 @@ import {
   buildSheet,
   GRAND_TOTAL_LABEL,
   GRAND_TOTAL_NOTE,
+  leadSplit,
   reportFileName,
   SERVICE_COLOR_NAME,
   SERVICE_HEX,
@@ -75,6 +76,13 @@ function putName(ws: Excel.Worksheet, row: number, col: number, c: SheetCell | n
   ws.getCell(row, col).alignment = { horizontal: 'center', vertical: 'middle', wrapText: false, shrinkToFit: true }
 }
 
+/** 세로로 rows 줄을 합친 이름 칸 (rows = 1 이면 합치지 않는다). 출석 색은 합친 칸 전체에 */
+function putNameSpan(ws: Excel.Worksheet, row: number, col: number, rows: number, c: SheetCell | null) {
+  if (rows > 1) ws.mergeCells(row, col, row + rows - 1, col)
+  putName(ws, row, col, c)
+  if (rows > 1 && c?.status === 'present') fillRange(ws, row, col, row + rows - 1, col, SERVICE_FILL[c.service ?? 1])
+}
+
 /** 병합 범위 안 모든 칸에 같은 배경 (병합된 칸 테두리·배경이 끊기지 않게) */
 export function fillRange(ws: Excel.Worksheet, r1: number, c1: number, r2: number, c2: number, argb: string) {
   for (let r = r1; r <= r2; r++)
@@ -122,29 +130,23 @@ function buildAttendanceSheet(wb: Excel.Workbook, sheet: SheetData) {
   put(ws, H, 14, '출  석', { bold: true, fill: FILL.header })
 
   // 목장별
+  // B열은 늘 두 칸 (목자 / 총무, 높이 5:5). 이름 줄이 3줄처럼 홀수면 줄마다 반 높이 두 줄로 그려서 가운데에서 가른다
   let r = H + 1
   for (const block of sheet.blocks) {
-    const n = block.rows.length
     const top = r
-    block.rows.forEach((row, i) => {
-      ws.getRow(r + i).height = 20
-      // B열은 늘 두 칸 (목자 / 총무): 줄이 3줄 이상이면 세로로 합친다
-      const lead = row.lead
-      if (lead) {
-        const bottom = r + i + lead.span - 1
-        if (lead.span > 1) ws.mergeCells(r + i, 2, bottom, 2)
-        putName(ws, r + i, 2, lead.cell)
-        if (lead.span > 1 && lead.cell?.status === 'present') fillRange(ws, r + i, 2, bottom, 2, SERVICE_FILL[lead.cell.service ?? 1])
-      }
-      row.cells.forEach((c, k) => putName(ws, r + i, 3 + k, c))
-    })
-    ws.mergeCells(top, 1, top + n - 1, 1)
+    const { sub, span } = leadSplit(block.rows.length)
+    const units = block.rows.length * sub
+    for (let u = 0; u < units; u++) ws.getRow(top + u).height = 20 / sub
+    block.rows.forEach((row, i) => row.cells.forEach((c, k) => putNameSpan(ws, top + i * sub, 3 + k, sub, c)))
+    putNameSpan(ws, top, 2, span, block.leader)
+    putNameSpan(ws, top + span, 2, span, block.manager)
+    ws.mergeCells(top, 1, top + units - 1, 1)
     put(ws, top, 1, block.group.name, { bold: true })
-    ws.mergeCells(top, 13, top + n - 1, 13)
+    ws.mergeCells(top, 13, top + units - 1, 13)
     put(ws, top, 13, block.total)
-    ws.mergeCells(top, 14, top + n - 1, 14)
+    ws.mergeCells(top, 14, top + units - 1, 14)
     put(ws, top, 14, block.present, { bold: true })
-    r += n
+    r += units
   }
 
   // 새신자 / 방문 / 바나바

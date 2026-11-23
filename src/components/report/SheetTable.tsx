@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { SheetBlock, SheetCell, SheetData } from '../../lib/report'
-import { cellStatusText, GRAND_TOTAL_LABEL, GRAND_TOTAL_NOTE, nameWidthEm } from '../../lib/report'
+import { cellStatusText, GRAND_TOTAL_LABEL, GRAND_TOTAL_NOTE, leadSplit, nameWidthEm } from '../../lib/report'
 import { SERVICE_FILL, type SheetVariant } from './serviceStyle'
 
 /**
@@ -8,7 +8,7 @@ import { SERVICE_FILL, type SheetVariant } from './serviceStyle'
  * 목장명 | 목자 | 목장 가족 (10칸) | 총원 | 출석
  * - screen: 앱 화면용 (1부 출석 = 노란 칸, 2부 출석 = 민트 칸, 결석은 상태 색 글씨)
  * - print: 인쇄용 (검은 글씨·검은 테두리, 엑셀과 같은 노랑 FFD700 / 민트 9BE5C8)
- * - 목자 칸(B열)은 목장마다 늘 두 칸: 위 = 목자, 아래 = 총무 (줄이 3줄 이상이면 세로로 합쳐서)
+ * - 목자 칸(B열)은 목장마다 늘 두 칸: 위 = 목자, 아래 = 총무 (줄이 몇 줄이든 높이 5:5)
  */
 
 type Variant = SheetVariant
@@ -77,15 +77,17 @@ function NameCell({
 }: {
   c: SheetCell | null
   variant: Variant
-  /** 세로로 합친 줄 수 (목자·총무 칸) */
+  /** 세로로 합친 줄 수 (줄 수가 짝수인 목장의 목자·총무 칸) */
   rowSpan?: number
   onCellClick?: (c: SheetCell) => void
 }) {
   const base = CELL[variant]
   const span = rowSpan > 1 ? rowSpan : undefined
   if (variant === 'print') {
+    // 줄 높이는 짝수 px (22px ≈ 5.8mm). mm 로 주면 PDF 로 바꿀 때 줄마다 23px·24px 로 달리 반올림돼 목자·총무 칸이 1px 어긋난다
+    // 홀수 줄 목장의 합친 칸 안쪽 = n×22 − 위아래 테두리 반씩(1) − 가운데 선(1) = 짝수 → 반쪽이 정수 px 로 딱 나뉜다
     return (
-      <td rowSpan={span} className={`${base} h-[6.2mm] px-[0.4mm] ${c ? cellLook(c, variant) : ''}`}>
+      <td rowSpan={span} className={`${base} h-[22px] px-[0.4mm] ${c ? cellLook(c, variant) : ''}`}>
         {c && <NameText name={c.name} variant={variant} />}
       </td>
     )
@@ -100,6 +102,57 @@ function NameCell({
       onClick={onCellClick ? () => onCellClick(c) : undefined}
     >
       <NameText name={c.name} variant={variant} />
+    </td>
+  )
+}
+
+/** 목자 칸(B열) 위아래 반쪽 하나 */
+function LeadHalf({ c, variant, onCellClick }: { c: SheetCell | null; variant: Variant; onCellClick?: (c: SheetCell) => void }) {
+  const pad = variant === 'screen' ? 'px-0' : 'px-[0.4mm]'
+  const click = variant === 'screen' && c && onCellClick ? () => onCellClick(c) : undefined
+  return (
+    <div
+      className={`flex min-h-0 min-w-0 flex-col justify-center ${pad} ${c ? cellLook(c, variant) : ''} ${click ? 'cursor-pointer' : ''}`}
+      title={variant === 'screen' && c ? cellTitle(c) : undefined}
+      onClick={click}
+    >
+      {c && <NameText name={c.name} variant={variant} />}
+    </div>
+  )
+}
+
+/**
+ * 목자 칸(B열) 중 i번째 줄에서 시작하는 칸. 위 = 목자, 아래 = 총무, 높이는 늘 5:5
+ * - 줄 수가 짝수(2·4줄): 예전처럼 칸 두 개가 줄을 절반씩 (가운데 선이 옆 이름 칸 줄선과 딱 맞는다)
+ * - 홀수(3·5줄): 목장 줄 전체를 합친 칸 하나를 안에서 위아래 반반으로 나눈다 (칸 높이는 같은 줄 이름 칸들이 정한다)
+ */
+function LeadCellAt({
+  block,
+  i,
+  variant,
+  onCellClick,
+}: {
+  block: SheetBlock
+  i: number
+  variant: Variant
+  onCellClick?: (c: SheetCell) => void
+}) {
+  const n = block.rows.length
+  const { sub, span } = leadSplit(n)
+  if (sub === 1) {
+    if (i === 0) return <NameCell c={block.leader} rowSpan={span} variant={variant} onCellClick={onCellClick} />
+    if (i === span) return <NameCell c={block.manager} rowSpan={span} variant={variant} onCellClick={onCellClick} />
+    return null
+  }
+  if (i !== 0) return null
+  return (
+    <td rowSpan={n} className={`${CELL[variant]} relative p-0`}>
+      {/* 가운데 선도 1px 짜리 자기 줄을 가져야 위아래 두 칸 높이가 정확히 같다 */}
+      <div className="absolute inset-0 grid grid-rows-[1fr_1px_1fr]">
+        <LeadHalf c={block.leader} variant={variant} onCellClick={onCellClick} />
+        <div className={variant === 'screen' ? 'bg-line' : 'bg-black'} />
+        <LeadHalf c={block.manager} variant={variant} onCellClick={onCellClick} />
+      </div>
     </td>
   )
 }
@@ -170,7 +223,7 @@ export function SheetTable({
                 </td>
               )}
               {/* 목자·총무 칸: 위 칸이 이 줄까지 내려와 있으면 그리지 않는다 */}
-              {row.lead && <NameCell c={row.lead.cell} rowSpan={row.lead.span} variant={variant} onCellClick={onCellClick} />}
+              <LeadCellAt block={b} i={i} variant={variant} onCellClick={onCellClick} />
               {row.cells.map((c, k) => (
                 <NameCell key={k} c={c} variant={variant} onCellClick={onCellClick} />
               ))}

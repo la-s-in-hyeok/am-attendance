@@ -287,27 +287,21 @@ export interface SheetCell {
   reason: string
 }
 
-/** B열(목자·총무) 칸 하나: 여러 줄을 세로로 합친 칸 */
-export interface SheetLead {
-  /** 목자 또는 총무 (없으면 빈 칸) */
-  cell: SheetCell | null
-  /** 이 칸이 세로로 차지하는 줄 수 (1 이상) */
-  span: number
-}
-
 export interface SheetRow {
-  /**
-   * B열: 이 줄에서 시작하는 목자/총무 칸. 위 칸이 이 줄까지 내려와 있으면 null (그리지 않는다)
-   * B열은 늘 두 칸: 위 = 목자, 아래 = 총무 (목장원이 많아 줄이 늘어도 두 칸이 나눠서 차지)
-   */
-  lead: SheetLead | null
   /** C~L열: 항상 10칸 (빈 칸은 null) */
   cells: (SheetCell | null)[]
 }
 
 export interface SheetBlock {
   group: Group
-  /** 2줄 이상 */
+  /**
+   * B열은 줄 수와 상관없이 늘 두 칸, 높이 5:5 — 위 = 목자, 아래 = 총무 (없으면 빈 칸)
+   * 짝수 줄이면 두 칸이 줄을 절반씩 나눠 갖는다. 홀수 줄이면 화면·인쇄는 줄 전체를 합친 칸 하나를 안에서 위아래 반으로
+   * 나누고, 엑셀은 줄마다 반 높이 두 줄로 그려 가운데에서 가르고 (leadSplit), Word 는 가운데 줄의 칸만 위아래 반으로 나눈다
+   */
+  leader: SheetCell | null
+  manager: SheetCell | null
+  /** C~L열 줄들 (2줄 이상) */
   rows: SheetRow[]
   /** 총원 */
   total: number
@@ -360,15 +354,20 @@ export function cellStatusText(c: Pick<SheetCell, 'status' | 'service'>): string
   return c.status === 'present' ? `${SERVICE_LABEL[c.service ?? 1]} 출석` : statusText(c.status)
 }
 
-/** B열 두 칸이 나눠 갖는 줄 수: 목자 = 앞쪽 절반(홀수면 한 줄 더), 총무 = 나머지 — 3줄이면 2 + 1 (교회 엑셀 B21:B22 = 목자, B23 = 총무) */
-export function leadSpans(rowCount: number): [leader: number, manager: number] {
-  const leader = Math.ceil(rowCount / 2)
-  return [leader, rowCount - leader]
+/**
+ * B열 두 칸(목자 / 총무)을 5:5 로 나누는 법 (엑셀은 한 칸을 반으로 못 나누므로 sub 로 줄을 쪼갠다)
+ * - sub: 이름 줄 하나를 몇 줄로 그릴지. 줄 수가 짝수면 1, 홀수면 2 (반 높이 두 줄)
+ * - span: 목자 칸과 총무 칸이 각각 세로로 차지하는 줄 수 (sub 로 쪼갠 줄 기준)
+ * 예) 2줄 → 1 + 1, 4줄 → 2 + 2, 3줄 → 반 줄 6개를 3 + 3 (이름 칸은 반 줄 두 개씩 합친다)
+ */
+export function leadSplit(rowCount: number): { sub: 1 | 2; span: number } {
+  const sub = rowCount % 2 === 0 ? 1 : 2
+  return { sub, span: (rowCount * sub) / 2 }
 }
 
 /**
  * 한 목장을 엑셀처럼 줄로 나눈다.
- * B열은 늘 두 칸 (위 = 목자, 아래 = 총무, 줄이 3줄 이상이면 세로로 합쳐서), 나머지는 C~L 에 10명씩.
+ * B열은 늘 두 칸 (위 = 목자, 아래 = 총무, 높이 5:5), 나머지는 C~L 에 10명씩.
  */
 export function buildSheetBlock(gw: GroupWeek): SheetBlock {
   const entries = gw.entries
@@ -376,21 +375,22 @@ export function buildSheetBlock(gw: GroupWeek): SheetBlock {
   const manager = entries.find((e) => e.member.role === 'manager')
   const others = entries.filter((e) => e !== leader && e !== manager).map(toCell)
   const rowCount = Math.max(2, Math.ceil(others.length / SHEET_NAME_COLS))
-  const [leaderSpan, managerSpan] = leadSpans(rowCount)
   const rows: SheetRow[] = []
   for (let i = 0; i < rowCount; i++) {
     const slice: (SheetCell | null)[] = others.slice(i * SHEET_NAME_COLS, (i + 1) * SHEET_NAME_COLS)
     while (slice.length < SHEET_NAME_COLS) slice.push(null)
-    const lead: SheetLead | null =
-      i === 0
-        ? { cell: leader ? toCell(leader) : null, span: leaderSpan }
-        : i === leaderSpan
-          ? { cell: manager ? toCell(manager) : null, span: managerSpan }
-          : null
-    rows.push({ lead, cells: slice })
+    rows.push({ cells: slice })
   }
   const s = gw.summary
-  return { group: gw.group, rows, total: s.total, present: s.present, summary: s }
+  return {
+    group: gw.group,
+    leader: leader ? toCell(leader) : null,
+    manager: manager ? toCell(manager) : null,
+    rows,
+    total: s.total,
+    present: s.present,
+    summary: s,
+  }
 }
 
 export function buildSheet(date: ISODate, week: GroupWeek[], totals: WeekTotals, note: WeekNote | undefined): SheetData {
